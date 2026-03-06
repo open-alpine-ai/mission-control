@@ -12,6 +12,26 @@ interface GatewayEntry {
   is_primary: number
 }
 
+function inferBrowserProtocol(request: NextRequest): 'http:' | 'https:' {
+  const forwardedProto = String(request.headers.get('x-forwarded-proto') || '').split(',')[0]?.trim().toLowerCase()
+  if (forwardedProto === 'https') return 'https:'
+  if (forwardedProto === 'http') return 'http:'
+
+  const origin = request.headers.get('origin') || request.headers.get('referer') || ''
+  if (origin) {
+    try {
+      const parsed = new URL(origin)
+      if (parsed.protocol === 'https:') return 'https:'
+      if (parsed.protocol === 'http:') return 'http:'
+    } catch {
+      // ignore and continue fallback resolution
+    }
+  }
+
+  if (request.nextUrl.protocol === 'https:') return 'https:'
+  return 'http:'
+}
+
 function ensureTable(db: ReturnType<typeof getDatabase>) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS gateways (
@@ -66,7 +86,7 @@ export async function POST(request: NextRequest) {
   const ws_url = buildGatewayWebSocketUrl({
     host: gateway.host,
     port: gateway.port,
-    browserProtocol: request.nextUrl.protocol,
+    browserProtocol: inferBrowserProtocol(request),
   })
 
   const dbToken = (gateway.token || '').trim()

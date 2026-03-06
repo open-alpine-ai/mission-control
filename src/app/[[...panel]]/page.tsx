@@ -88,33 +88,33 @@ export default function Home() {
       connect(wsUrl)
     }
 
-    const connectWithPrimaryGateway = async (): Promise<boolean> => {
+    const connectWithPrimaryGateway = async (): Promise<{ attempted: boolean; connected: boolean }> => {
       try {
         const gatewaysRes = await fetch('/api/gateways')
-        if (!gatewaysRes.ok) return false
+        if (!gatewaysRes.ok) return { attempted: false, connected: false }
         const gatewaysJson = await gatewaysRes.json().catch(() => ({}))
         const gateways = Array.isArray(gatewaysJson?.gateways) ? gatewaysJson.gateways as GatewaySummary[] : []
-        if (gateways.length === 0) return false
+        if (gateways.length === 0) return { attempted: false, connected: false }
 
         const primaryGateway = gateways.find(gw => Number(gw?.is_primary) === 1) || gateways[0]
-        if (!primaryGateway?.id) return false
+        if (!primaryGateway?.id) return { attempted: true, connected: false }
 
         const connectRes = await fetch('/api/gateways/connect', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id: primaryGateway.id }),
         })
-        if (!connectRes.ok) return false
+        if (!connectRes.ok) return { attempted: true, connected: false }
 
         const payload = await connectRes.json().catch(() => ({}))
         const wsUrl = typeof payload?.ws_url === 'string' ? payload.ws_url : ''
         const wsToken = typeof payload?.token === 'string' ? payload.token : ''
-        if (!wsUrl) return false
+        if (!wsUrl) return { attempted: true, connected: false }
 
         connect(wsUrl, wsToken)
-        return true
+        return { attempted: true, connected: true }
       } catch {
-        return false
+        return { attempted: false, connected: false }
       }
     }
 
@@ -162,8 +162,8 @@ export default function Home() {
           setGatewayAvailable(true)
         }
 
-        const connectedToPrimary = await connectWithPrimaryGateway()
-        if (!connectedToPrimary) {
+        const primaryConnect = await connectWithPrimaryGateway()
+        if (!primaryConnect.connected && !primaryConnect.attempted) {
           connectWithEnvFallback()
         }
       })
