@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Image from 'next/image'
 import { useMissionControl } from '@/store'
 import { useNavigateToPanel } from '@/lib/navigation'
 import { createClientLogger } from '@/lib/client-logger'
@@ -50,8 +51,8 @@ export function Sidebar() {
       {/* Logo/Brand */}
       <div className="p-6 border-b border-border">
         <div className="flex items-center space-x-2">
-          <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-            <span className="text-primary-foreground font-bold text-sm">MC</span>
+          <div className="w-8 h-8 rounded-lg overflow-hidden bg-primary/10 border border-border/70 flex items-center justify-center">
+            <Image src="/brand/mc-logo-128.png" alt="Mission Control logo" width={32} height={32} className="w-full h-full object-cover" />
           </div>
           <div>
             <h2 className="font-bold text-foreground">Mission Control</h2>

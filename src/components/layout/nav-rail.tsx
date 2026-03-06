@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import Image from 'next/image'
 import { useMissionControl } from '@/store'
 import { useNavigateToPanel } from '@/lib/navigation'
 
@@ -98,8 +99,8 @@ export function NavRail() {
       >
         {/* Header: Logo + toggle */}
         <div className={`flex items-center shrink-0 ${sidebarExpanded ? 'px-3 py-3 gap-2.5' : 'flex-col py-3 gap-2'}`}>
-          <div className="w-9 h-9 rounded-lg bg-primary flex items-center justify-center shrink-0">
-            <span className="text-primary-foreground font-bold text-xs">MC</span>
+          <div className="w-9 h-9 rounded-lg overflow-hidden bg-primary/10 border border-border/70 flex items-center justify-center shrink-0">
+            <Image src="/brand/mc-logo-128.png" alt="Mission Control logo" width={36} height={36} className="w-full h-full object-cover" priority />
           </div>
           {sidebarExpanded && (
             <span className="text-sm font-semibold text-foreground truncate flex-1">Mission Control</span>

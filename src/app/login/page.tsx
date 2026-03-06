@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
+import Image from 'next/image'
 
 declare global {
   interface Window {
@@ -101,8 +102,8 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <div className="w-full max-w-sm">
         <div className="flex flex-col items-center mb-8">
-          <div className="w-12 h-12 rounded-xl bg-primary flex items-center justify-center mb-3">
-            <span className="text-primary-foreground font-bold text-lg">MC</span>
+          <div className="w-12 h-12 rounded-xl overflow-hidden bg-primary/10 border border-border/70 flex items-center justify-center mb-3">
+            <Image src="/brand/mc-logo-128.png" alt="Mission Control logo" width={48} height={48} className="w-full h-full object-cover" priority />
           </div>
           <h1 className="text-xl font-semibold text-foreground">Mission Control</h1>
           <p className="text-sm text-muted-foreground mt-1">Sign in to continue</p>
