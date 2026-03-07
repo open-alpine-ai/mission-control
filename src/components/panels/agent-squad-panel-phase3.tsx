@@ -91,12 +91,13 @@ export function AgentSquadPanelPhase3() {
   const [syncing, setSyncing] = useState(false)
   const [syncToast, setSyncToast] = useState<string | null>(null)
 
-  // Sync agents from gateway config
-  const syncFromConfig = async () => {
+  // Sync agents from gateway config or local disk
+  const syncFromConfig = async (source?: 'local') => {
     setSyncing(true)
     setSyncToast(null)
     try {
-      const response = await fetch('/api/agents/sync', { method: 'POST' })
+      const url = source === 'local' ? '/api/agents/sync?source=local' : '/api/agents/sync'
+      const response = await fetch(url, { method: 'POST' })
       if (response.status === 401) {
         window.location.assign('/login?next=%2Fagents')
         return
@@ -106,7 +107,11 @@ export function AgentSquadPanelPhase3() {
         throw new Error('Admin access required for agent sync')
       }
       if (!response.ok) throw new Error(data.error || 'Sync failed')
-      setSyncToast(`Synced ${data.synced} agents (${data.created} new, ${data.updated} updated)`)
+      if (source === 'local') {
+        setSyncToast(data.message || 'Local agent sync complete')
+      } else {
+        setSyncToast(`Synced ${data.synced} agents (${data.created} new, ${data.updated} updated)`)
+      }
       fetchAgents()
       setTimeout(() => setSyncToast(null), 5000)
     } catch (err: any) {
@@ -300,12 +305,20 @@ export function AgentSquadPanelPhase3() {
             {autoRefresh ? 'Live' : 'Manual'}
           </Button>
           <Button
-            onClick={syncFromConfig}
+            onClick={() => syncFromConfig()}
             disabled={syncing}
             size="sm"
             className="bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500/30"
           >
-            {syncing ? 'Syncing...' : 'Sync from Config'}
+            {syncing ? 'Syncing...' : 'Sync Config'}
+          </Button>
+          <Button
+            onClick={() => syncFromConfig('local')}
+            disabled={syncing}
+            size="sm"
+            className="bg-violet-500/20 text-violet-400 border border-violet-500/30 hover:bg-violet-500/30"
+          >
+            Sync Local
           </Button>
           <Button
             onClick={() => setShowCreateModal(true)}
@@ -373,7 +386,20 @@ export function AgentSquadPanelPhase3() {
                   <div className="flex items-center gap-2 min-w-0">
                     <AgentAvatar name={agent.name} size="md" />
                     <div className="min-w-0">
-                      <h3 className="font-semibold text-foreground text-lg truncate">{agent.name}</h3>
+                      <div className="flex items-center gap-1.5">
+                        <h3 className="font-semibold text-foreground text-lg truncate">{agent.name}</h3>
+                        {(agent as any).source && (agent as any).source !== 'manual' && (
+                          <span className={`text-2xs px-1.5 py-0.5 rounded-full border ${
+                            (agent as any).source === 'local'
+                              ? 'bg-violet-500/15 text-violet-300 border-violet-500/30'
+                              : (agent as any).source === 'gateway'
+                                ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30'
+                                : 'bg-slate-500/15 text-slate-300 border-slate-500/30'
+                          }`}>
+                            {(agent as any).source}
+                          </span>
+                        )}
+                      </div>
                       <p className="text-muted-foreground text-sm truncate">{agent.role}</p>
                     </div>
                   </div>

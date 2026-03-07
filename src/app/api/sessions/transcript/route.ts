@@ -5,9 +5,15 @@ import { config } from '@/lib/config'
 import { requireRole } from '@/lib/auth'
 import { logger } from '@/lib/logger'
 
+type MessageContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'thinking'; thinking: string }
+  | { type: 'tool_use'; id: string; name: string; input: string }
+  | { type: 'tool_result'; toolUseId: string; content: string; isError?: boolean }
+
 type TranscriptMessage = {
   role: 'user' | 'assistant' | 'system'
-  content: string
+  parts: MessageContentPart[]
   timestamp?: string
 }
 
@@ -60,12 +66,17 @@ function listRecentFiles(root: string, ext: string, limit: number): string[] {
 function pushMessage(
   list: TranscriptMessage[],
   role: TranscriptMessage['role'],
-  content: string | null,
+  parts: MessageContentPart[],
   timestamp?: string,
 ) {
+  if (parts.length === 0) return
+  list.push({ role, parts, timestamp })
+}
+
+function textPart(content: string | null, limit = 8000): MessageContentPart | null {
   const text = String(content || '').trim()
-  if (!text) return
-  list.push({ role, content: text.slice(0, 2000), timestamp })
+  if (!text) return null
+  return { type: 'text', text: text.slice(0, limit) }
 }
 
 function readClaudeTranscript(sessionId: string, limit: number): TranscriptMessage[] {

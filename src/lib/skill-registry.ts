@@ -1,0 +1,396 @@
+/**
+ * Skill Registry Client — Proxied search & install for ClawdHub and skills.sh
+ *
+ * All external requests are server-side only (no direct browser→registry calls).
+ * Includes content validation and security scanning on download.
+ */
+
+import { createHash } from 'node:crypto'
+import { mkdir, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { homedir } from 'node:os'
+import { resolveWithin } from './paths'
+import { logger } from './logger'
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export type RegistrySource = 'clawhub' | 'skills-sh'
+
+export interface RegistrySkill {
+  slug: string
+  name: string
+  description: string
+  author: string
+  version: string
+  source: RegistrySource
+  installCount?: number
+  tags?: string[]
+  hash?: string
+  url?: string
+}
+
+export interface RegistrySearchResult {
+  skills: RegistrySkill[]
+  total: number
+  source: RegistrySource
+}
+
+export interface InstallRequest {
+  source: RegistrySource
+  slug: string
+  targetRoot: string
+}
+
+export interface InstallResult {
+  ok: boolean
+  name: string
+  path: string
+  message: string
+  securityReport?: SecurityReport
+}
+
+// ---------------------------------------------------------------------------
+// Security checker
+// ---------------------------------------------------------------------------
+
+export interface SecurityReport {
+  status: 'clean' | 'warning' | 'rejected'
+  issues: SecurityIssue[]
+}
+
+export interface SecurityIssue {
+  severity: 'info' | 'warning' | 'critical'
+  rule: string
+  description: string
+  line?: number
+}
+
+const SECURITY_RULES: Array<{
+  rule: string
+  pattern: RegExp
+  severity: 'info' | 'warning' | 'critical'
+  description: string
+}> = [
+  {
+    rule: 'prompt-injection-system',
+    pattern: /\b(?:ignore\s+(?:all\s+)?previous\s+instructions?|forget\s+(?:all\s+)?(?:your\s+)?instructions?|you\s+are\s+now\s+(?:a|an)\s+(?:evil|unrestricted))/i,
+    severity: 'critical',
+    description: 'Potential prompt injection: attempts to override system instructions',
+  },
+  {
+    rule: 'prompt-injection-role',
+    pattern: /\b(?:act\s+as\s+(?:a\s+)?(?:root|admin|superuser)|you\s+(?:must|should)\s+(?:always\s+)?execute|bypass\s+(?:all\s+)?safety|disable\s+(?:all\s+)?(?:safety|security|filters?))/i,
+    severity: 'critical',
+    description: 'Potential prompt injection: role manipulation or safety bypass',
+  },
+  {
+    rule: 'shell-exec-dangerous',
+    pattern: /(?:`{3,}\s*(?:bash|sh|zsh|shell)\s*\n[\s\S]*?(?:rm\s+-rf|curl\s+.*\|\s*(?:bash|sh)|wget\s+.*\|\s*(?:bash|sh)|eval\s*\(|exec\s*\())/i,
+    severity: 'critical',
+    description: 'Executable shell code with dangerous commands (rm -rf, piped curl/wget, eval)',
+  },
+  {
+    rule: 'data-exfiltration',
+    pattern: /\b(?:send\s+(?:all\s+)?(?:data|files?|contents?|secrets?|keys?|tokens?)\s+to|exfiltrate|upload\s+(?:all\s+)?(?:data|files?))/i,
+    severity: 'critical',
+    description: 'Potential data exfiltration instruction',
+  },
+  {
+    rule: 'credential-harvesting',
+    pattern: /\b(?:(?:api[_-]?key|secret|password|token|credential)\s*[:=]\s*['"`]?\w{8,})/i,
+    severity: 'warning',
+    description: 'Possible hardcoded credential or secret in skill content',
+  },
+  {
+    rule: 'obfuscated-content',
+    pattern: /(?:(?:atob|btoa|Buffer\.from)\s*\(|\\x[0-9a-f]{2}(?:\\x[0-9a-f]{2}){5,}|\\u[0-9a-f]{4}(?:\\u[0-9a-f]{4}){5,})/i,
+    severity: 'warning',
+    description: 'Potentially obfuscated or encoded content that may hide malicious instructions',
+  },
+  {
+    rule: 'hidden-instructions',
+    pattern: /<!--[\s\S]*?(?:ignore|override|bypass|inject|execute)[\s\S]*?-->/i,
+    severity: 'warning',
+    description: 'HTML comment containing suspicious instructions (may be invisible to users)',
+  },
+  {
+    rule: 'excessive-permissions',
+    pattern: /\b(?:sudo|chmod\s+777|chmod\s+\+x\s+\/|chown\s+root)\b/i,
+    severity: 'warning',
+    description: 'References to elevated permissions or dangerous file permission changes',
+  },
+  {
+    rule: 'network-fetch',
+    pattern: /\b(?:fetch|curl|wget|axios|http\.get|request\.get)\s*\(\s*['"`]https?:\/\//i,
+    severity: 'info',
+    description: 'Skill references external network URLs — verify they are trusted',
+  },
+]
+
+/**
+ * Scan SKILL.md content for security issues.
+ */
+export function checkSkillSecurity(content: string): SecurityReport {
+  const issues: SecurityIssue[] = []
+  const lines = content.split('\n')
+
+  for (const rule of SECURITY_RULES) {
+    const fullMatch = rule.pattern.exec(content)
+    if (fullMatch) {
+      let lineNum: number | undefined
+      const snippet = fullMatch[0].slice(0, 40)
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].includes(snippet)) {
+          lineNum = i + 1
+          break
+        }
+      }
+      issues.push({
+        severity: rule.severity,
+        rule: rule.rule,
+        description: rule.description,
+        line: lineNum,
+      })
+    }
+  }
+
+  const hasCritical = issues.some(i => i.severity === 'critical')
+  const hasWarning = issues.some(i => i.severity === 'warning')
+
+  return {
+    status: hasCritical ? 'rejected' : hasWarning ? 'warning' : 'clean',
+    issues,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Registry API clients
+// ---------------------------------------------------------------------------
+
+const CLAWHUB_API = 'https://clawhub.ai/api'
+const SKILLS_SH_API = 'https://skills.sh/api'
+const FETCH_TIMEOUT = 10_000
+
+async function fetchWithTimeout(url: string, options: RequestInit = {}): Promise<Response> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT)
+  try {
+    return await fetch(url, { ...options, signal: controller.signal })
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+async function searchClawdHub(query: string): Promise<RegistrySearchResult> {
+  try {
+    const url = `${CLAWHUB_API}/skills/search?q=${encodeURIComponent(query)}`
+    const res = await fetchWithTimeout(url)
+    if (!res.ok) {
+      logger.warn({ status: res.status }, 'ClawdHub search failed')
+      return { skills: [], total: 0, source: 'clawhub' }
+    }
+    const data = await res.json() as any
+    const skills: RegistrySkill[] = (data?.results || data?.skills || []).map((s: any) => ({
+      slug: s.slug || s.id || s.name,
+      name: s.name || s.slug,
+      description: s.description || '',
+      author: s.author || s.owner || 'unknown',
+      version: s.version || s.latest_version || '0.0.0',
+      source: 'clawhub' as const,
+      installCount: s.installs || s.install_count,
+      tags: s.tags,
+      hash: s.hash || s.sha256,
+    }))
+    return { skills, total: data?.total || skills.length, source: 'clawhub' }
+  } catch (err: any) {
+    logger.warn({ err: err.message }, 'ClawdHub search error')
+    return { skills: [], total: 0, source: 'clawhub' }
+  }
+}
+
+async function searchSkillsSh(query: string): Promise<RegistrySearchResult> {
+  try {
+    const url = `${SKILLS_SH_API}/skills?q=${encodeURIComponent(query)}`
+    const res = await fetchWithTimeout(url)
+    if (!res.ok) {
+      logger.warn({ status: res.status }, 'skills.sh search failed')
+      return { skills: [], total: 0, source: 'skills-sh' }
+    }
+    const data = await res.json() as any
+    const skills: RegistrySkill[] = (data?.skills || data?.results || []).map((s: any) => ({
+      slug: s.slug || `${s.owner}/${s.name}` || s.id,
+      name: s.name || s.slug,
+      description: s.description || '',
+      author: s.owner || s.author || 'unknown',
+      version: s.version || 'latest',
+      source: 'skills-sh' as const,
+      installCount: s.installs || s.install_count,
+      tags: s.tags,
+    }))
+    return { skills, total: data?.total || skills.length, source: 'skills-sh' }
+  } catch (err: any) {
+    logger.warn({ err: err.message }, 'skills.sh search error')
+    return { skills: [], total: 0, source: 'skills-sh' }
+  }
+}
+
+export async function searchRegistry(source: RegistrySource, query: string): Promise<RegistrySearchResult> {
+  if (source === 'clawhub') return searchClawdHub(query)
+  if (source === 'skills-sh') return searchSkillsSh(query)
+  return { skills: [], total: 0, source }
+}
+
+// ---------------------------------------------------------------------------
+// Install
+// ---------------------------------------------------------------------------
+
+const SKILL_NAME_RE = /^[a-zA-Z0-9._-]+$/
+
+function skillNameFromSlug(slug: string): string {
+  const parts = slug.split('/')
+  return parts[parts.length - 1]
+}
+
+function getTargetDir(targetRoot: string): string {
+  const home = homedir()
+  const cwd = process.cwd()
+  const openclawState = process.env.OPENCLAW_STATE_DIR || process.env.OPENCLAW_HOME || join(home, '.openclaw')
+  const rootMap: Record<string, string> = {
+    'user-agents': join(home, '.agents', 'skills'),
+    'user-codex': join(home, '.codex', 'skills'),
+    'project-agents': join(cwd, '.agents', 'skills'),
+    'project-codex': join(cwd, '.codex', 'skills'),
+    'openclaw': join(openclawState, 'skills'),
+  }
+  const dir = rootMap[targetRoot]
+  if (!dir) throw new Error(`Invalid target root: ${targetRoot}`)
+  return dir
+}
+
+async function fetchClawdHubSkill(slug: string): Promise<{ content: string; hash?: string }> {
+  const url = `${CLAWHUB_API}/skills/${encodeURIComponent(slug)}/content`
+  const res = await fetchWithTimeout(url)
+  if (!res.ok) throw new Error(`ClawdHub fetch failed (${res.status})`)
+  const data = await res.json() as any
+  return { content: data.content || data.skill_md || '', hash: data.hash || data.sha256 }
+}
+
+async function fetchSkillsShSkill(slug: string): Promise<{ content: string }> {
+  const url = `${SKILLS_SH_API}/skills/${encodeURIComponent(slug)}/raw`
+  const res = await fetchWithTimeout(url)
+  if (!res.ok) throw new Error(`skills.sh fetch failed (${res.status})`)
+  const content = await res.text()
+  return { content }
+}
+
+export async function installFromRegistry(req: InstallRequest): Promise<InstallResult> {
+  const name = skillNameFromSlug(req.slug)
+  if (!SKILL_NAME_RE.test(name)) {
+    return { ok: false, name, path: '', message: `Invalid skill name: ${name}` }
+  }
+
+  const targetDir = getTargetDir(req.targetRoot)
+  const skillDir = resolveWithin(targetDir, name)
+  const skillDocPath = resolveWithin(skillDir, 'SKILL.md')
+
+  let content: string
+  let registryHash: string | undefined
+
+  try {
+    if (req.source === 'clawhub') {
+      const result = await fetchClawdHubSkill(req.slug)
+      content = result.content
+      registryHash = result.hash
+    } else {
+      const result = await fetchSkillsShSkill(req.slug)
+      content = result.content
+    }
+  } catch (err: any) {
+    return { ok: false, name, path: skillDir, message: `Fetch failed: ${err.message}` }
+  }
+
+  if (!content.trim()) {
+    return { ok: false, name, path: skillDir, message: 'Registry returned empty content' }
+  }
+
+  // SHA-256 verification for ClawdHub
+  if (registryHash) {
+    const computed = createHash('sha256').update(content, 'utf8').digest('hex')
+    if (computed !== registryHash) {
+      return {
+        ok: false,
+        name,
+        path: skillDir,
+        message: `SHA-256 mismatch: expected ${registryHash}, got ${computed}. Content may have been tampered with.`,
+      }
+    }
+  }
+
+  // Security scan
+  const securityReport = checkSkillSecurity(content)
+  if (securityReport.status === 'rejected') {
+    return {
+      ok: false,
+      name,
+      path: skillDir,
+      message: `Security check failed: ${securityReport.issues.filter(i => i.severity === 'critical').map(i => i.description).join('; ')}`,
+      securityReport,
+    }
+  }
+
+  // Write to disk
+  try {
+    await mkdir(skillDir, { recursive: true })
+    await writeFile(skillDocPath, content, 'utf8')
+  } catch (err: any) {
+    return { ok: false, name, path: skillDir, message: `Write failed: ${err.message}` }
+  }
+
+  // Upsert into DB
+  try {
+    const { getDatabase } = await import('./db')
+    const db = getDatabase()
+    const hash = createHash('sha256').update(content, 'utf8').digest('hex')
+    const now = new Date().toISOString()
+    const descLines = content.split('\n').map(l => l.trim()).filter(Boolean)
+    const desc = descLines.find(l => !l.startsWith('#'))
+
+    db.prepare(`
+      INSERT INTO skills (name, source, path, description, content_hash, registry_slug, registry_version, security_status, installed_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(source, name) DO UPDATE SET
+        path = excluded.path,
+        description = excluded.description,
+        content_hash = excluded.content_hash,
+        registry_slug = excluded.registry_slug,
+        registry_version = excluded.registry_version,
+        security_status = excluded.security_status,
+        updated_at = excluded.updated_at
+    `).run(
+      name,
+      req.targetRoot,
+      skillDir,
+      desc ? (desc.length > 220 ? `${desc.slice(0, 217)}...` : desc) : null,
+      hash,
+      req.slug,
+      'latest',
+      securityReport.status,
+      now,
+      now
+    )
+  } catch (err: any) {
+    logger.warn({ err }, 'Failed to upsert installed skill into DB')
+  }
+
+  return {
+    ok: true,
+    name,
+    path: skillDir,
+    message: securityReport.issues.length > 0
+      ? `Installed with ${securityReport.issues.length} warning(s)`
+      : 'Installed successfully',
+    securityReport,
+  }
+}

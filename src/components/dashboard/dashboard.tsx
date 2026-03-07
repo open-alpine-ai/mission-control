@@ -35,11 +35,6 @@ type LogLike = {
   message: string
 }
 
-type SessionPreviewMessage = {
-  role: 'user' | 'assistant' | 'system'
-  content: string
-  timestamp?: string
-}
 
 export function Dashboard() {
   const {
@@ -51,6 +46,7 @@ export function Dashboard() {
     logs,
     agents,
     tasks,
+    setActiveConversation,
   } = useMissionControl()
 
   const navigateToPanel = useNavigateToPanel()
@@ -73,10 +69,6 @@ export function Dashboard() {
   const [dbStats, setDbStats] = useState<DbStats | null>(null)
   const [claudeStats, setClaudeStats] = useState<ClaudeStats | null>(null)
   const [githubStats, setGithubStats] = useState<any>(null)
-  const [previewSessionId, setPreviewSessionId] = useState<string | null>(null)
-  const [previewMessages, setPreviewMessages] = useState<SessionPreviewMessage[]>([])
-  const [previewLoading, setPreviewLoading] = useState(false)
-  const [previewError, setPreviewError] = useState<string | null>(null)
   const [loading, setLoading] = useState({
     system: true,
     sessions: true,
@@ -227,51 +219,13 @@ export function Dashboard() {
   const recentErrorLogs = mergedRecentLogs.filter((log) => log.level === 'error').length
   const gatewayHealthStatus = connection.isConnected ? 'good' : 'bad'
 
-  const openSessionPreview = useCallback(async (session: any) => {
+  const openSession = useCallback((session: any) => {
+    const kind = String(session?.kind || '')
     const sid = String(session?.id || '')
     if (!sid) return
-
-    if (previewSessionId === sid) {
-      setPreviewSessionId(null)
-      setPreviewMessages([])
-      setPreviewError(null)
-      return
-    }
-
-    setPreviewSessionId(sid)
-    setPreviewMessages([])
-    setPreviewError(null)
-    setPreviewLoading(true)
-
-    const kind = String(session?.kind || '')
-    try {
-      if (kind === 'claude-code' || kind === 'codex-cli') {
-        const res = await fetch(`/api/sessions/transcript?kind=${encodeURIComponent(kind)}&id=${encodeURIComponent(sid)}&limit=40`)
-        if (!res.ok) throw new Error('Failed to load session transcript')
-        const data = await res.json()
-        const messages = Array.isArray(data?.messages) ? data.messages : []
-        setPreviewMessages(messages)
-      } else {
-        const searchTerm = encodeURIComponent(String(session?.key || sid))
-        const res = await fetch(`/api/logs?action=recent&limit=50&search=${searchTerm}`)
-        if (!res.ok) throw new Error('Failed to load gateway log preview')
-        const data = await res.json()
-        const logRows = Array.isArray(data?.logs) ? data.logs : []
-        setPreviewMessages(
-          logRows.slice(0, 24).map((row: any) => ({
-            role: 'system' as const,
-            content: String(row?.message || '').trim(),
-            timestamp: row?.timestamp ? new Date(Number(row.timestamp)).toISOString() : undefined,
-          }))
-        )
-      }
-    } catch (err) {
-      setPreviewMessages([])
-      setPreviewError(err instanceof Error ? err.message : 'Failed to load preview')
-    } finally {
-      setPreviewLoading(false)
-    }
-  }, [previewSessionId])
+    setActiveConversation(`session:${kind}:${sid}`)
+    navigateToPanel('chat')
+  }, [setActiveConversation, navigateToPanel])
 
   return (
     <div className="p-5 space-y-4">
@@ -337,7 +291,7 @@ export function Dashboard() {
                     <div key={session.id} className="px-4 py-2.5 hover:bg-secondary/20 transition-smooth">
                       <button
                         type="button"
-                        onClick={() => openSessionPreview(session)}
+                        onClick={() => openSession(session)}
                         className="w-full text-left flex items-center gap-3"
                       >
                         <div className={`w-2 h-2 rounded-full shrink-0 ${session.active ? 'bg-green-500' : 'bg-muted-foreground/30'}`} />
@@ -350,14 +304,6 @@ export function Dashboard() {
                           <div className="text-2xs text-muted-foreground">{session.age}</div>
                         </div>
                       </button>
-                      {previewSessionId === session.id && (
-                        <SessionPreviewCard
-                          sessionKey={session.key || session.id}
-                          loading={previewLoading}
-                          error={previewError}
-                          messages={previewMessages}
-                        />
-                      )}
                     </div>
                   ))
                 )}
@@ -459,7 +405,7 @@ export function Dashboard() {
                     <div key={session.id} className="px-4 py-2.5 hover:bg-secondary/20 transition-smooth">
                       <button
                         type="button"
-                        onClick={() => openSessionPreview(session)}
+                        onClick={() => openSession(session)}
                         className="w-full text-left flex items-center gap-3"
                       >
                         <div className={`w-2 h-2 rounded-full shrink-0 ${session.active ? 'bg-green-500' : 'bg-muted-foreground/30'}`} />
@@ -472,14 +418,6 @@ export function Dashboard() {
                           <div className="text-2xs text-muted-foreground">{session.age}</div>
                         </div>
                       </button>
-                      {previewSessionId === session.id && (
-                        <SessionPreviewCard
-                          sessionKey={session.key || session.id}
-                          loading={previewLoading}
-                          error={previewError}
-                          messages={previewMessages}
-                        />
-                      )}
                     </div>
                   ))
                 )}
@@ -656,52 +594,6 @@ function LogRow({ log }: { log: LogLike }) {
   )
 }
 
-function SessionPreviewCard({
-  sessionKey,
-  loading,
-  error,
-  messages,
-}: {
-  sessionKey: string
-  loading: boolean
-  error: string | null
-  messages: SessionPreviewMessage[]
-}) {
-  return (
-    <div className="mt-2 rounded-md border border-border bg-secondary/20 p-2.5">
-      <div className="mb-2 flex items-center justify-between">
-        <span className="text-2xs uppercase tracking-wide text-muted-foreground">Session Chat · {sessionKey}</span>
-        <span className="text-2xs text-muted-foreground">TUI preview</span>
-      </div>
-      <div className="max-h-52 overflow-y-auto space-y-1.5 pr-1">
-        {loading && <p className="text-2xs text-muted-foreground">Loading transcript...</p>}
-        {!loading && error && <p className="text-2xs text-red-400">{error}</p>}
-        {!loading && !error && messages.length === 0 && (
-          <p className="text-2xs text-muted-foreground">No transcript entries available.</p>
-        )}
-        {!loading && !error && messages.map((m, idx) => (
-          <div key={`${idx}-${m.timestamp || idx}`} className="rounded border border-border/60 bg-card/40 px-2 py-1.5">
-            <div className="mb-0.5 flex items-center justify-between">
-              <span className={`text-2xs uppercase tracking-wide ${
-                m.role === 'user' ? 'text-blue-400' : m.role === 'assistant' ? 'text-green-400' : 'text-amber-400'
-              }`}>
-                {m.role}
-              </span>
-              {m.timestamp && (
-                <span className="text-2xs text-muted-foreground">
-                  {new Date(m.timestamp).toLocaleTimeString()}
-                </span>
-              )}
-            </div>
-            <p className="text-xs text-foreground/90 whitespace-pre-wrap break-words">
-              {m.content.length > 420 ? `${m.content.slice(0, 420)}...` : m.content}
-            </p>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
 
 function QuickAction({ label, desc, tab, icon, onNavigate }: {
   label: string

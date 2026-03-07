@@ -1002,6 +1002,46 @@ const migrations: Migration[] = [
       `)
       db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_adapter_configs_workspace_framework ON adapter_configs(workspace_id, framework)`)
     }
+  },
+  {
+    id: '033_skills',
+    up(db: Database.Database) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS skills (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          source TEXT NOT NULL,
+          path TEXT NOT NULL,
+          description TEXT,
+          content_hash TEXT,
+          registry_slug TEXT,
+          registry_version TEXT,
+          security_status TEXT DEFAULT 'unchecked',
+          installed_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+          UNIQUE(source, name)
+        )
+      `)
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_skills_name ON skills(name)`)
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_skills_source ON skills(source)`)
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_skills_registry_slug ON skills(registry_slug)`)
+    }
+  },
+  {
+    id: '034_agents_source',
+    up(db: Database.Database) {
+      const cols = db.prepare(`PRAGMA table_info(agents)`).all() as Array<{ name: string }>
+      if (!cols.some(c => c.name === 'source')) {
+        db.exec(`ALTER TABLE agents ADD COLUMN source TEXT DEFAULT 'manual'`)
+      }
+      if (!cols.some(c => c.name === 'content_hash')) {
+        db.exec(`ALTER TABLE agents ADD COLUMN content_hash TEXT`)
+      }
+      if (!cols.some(c => c.name === 'workspace_path')) {
+        db.exec(`ALTER TABLE agents ADD COLUMN workspace_path TEXT`)
+      }
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_agents_source ON agents(source)`)
+    }
   }
 ]
 

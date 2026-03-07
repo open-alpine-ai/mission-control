@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 export function LiveFeed() {
   const { logs, sessions, activities, connection, dashboardMode, toggleLiveFeed } = useMissionControl()
   const isLocal = dashboardMode === 'local'
-  const [expanded, setExpanded] = useState(true)
+  const [expanded, setExpanded] = useState(false)
   const [hasCollapsed, setHasCollapsed] = useState(false)
 
   // Combine logs, activities, and (in local mode) session events into a unified feed

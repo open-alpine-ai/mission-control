@@ -11,6 +11,8 @@ interface SkillSummary {
   source: string
   path: string
   description?: string
+  registry_slug?: string | null
+  security_status?: string | null
 }
 
 interface SkillGroup {
@@ -31,6 +33,28 @@ interface SkillContentResponse {
   skillPath: string
   skillDocPath: string
   content: string
+  security?: { status: string; issues: Array<{ severity: string; rule: string; description: string; line?: number }> }
+}
+
+interface RegistrySkill {
+  slug: string
+  name: string
+  description: string
+  author: string
+  version: string
+  source: string
+  installCount?: number
+  tags?: string[]
+}
+
+type PanelTab = 'installed' | 'registry'
+
+const SOURCE_LABELS: Record<string, string> = {
+  'user-agents': '~/.agents/skills (global)',
+  'user-codex': '~/.codex/skills (global)',
+  'project-agents': '.agents/skills (project)',
+  'project-codex': '.codex/skills (project)',
+  'openclaw': '~/.openclaw/skills (gateway)',
 }
 
 export function SkillsPanel() {
@@ -50,6 +74,15 @@ export function SkillsPanel() {
   const [createContent, setCreateContent] = useState('# new-skill\n\nDescribe this skill.\n')
   const [createError, setCreateError] = useState<string | null>(null)
   const [isMounted, setIsMounted] = useState(false)
+  const [activeTab, setActiveTab] = useState<PanelTab>('installed')
+  const [registrySource, setRegistrySource] = useState<'clawhub' | 'skills-sh'>('clawhub')
+  const [registryQuery, setRegistryQuery] = useState('')
+  const [registryResults, setRegistryResults] = useState<RegistrySkill[]>([])
+  const [registryLoading, setRegistryLoading] = useState(false)
+  const [registryError, setRegistryError] = useState<string | null>(null)
+  const [installTarget, setInstallTarget] = useState('user-agents')
+  const [installing, setInstalling] = useState<string | null>(null)
+  const [installMessage, setInstallMessage] = useState<string | null>(null)
 
   useEffect(() => {
     setIsMounted(true)
@@ -221,104 +254,315 @@ export function SkillsPanel() {
     }
   }
 
+  const searchRegistry = async () => {
+    if (!registryQuery.trim()) return
+    setRegistryLoading(true)
+    setRegistryError(null)
+    try {
+      const params = new URLSearchParams({ source: registrySource, q: registryQuery.trim() })
+      const res = await fetch(`/api/skills/registry?${params.toString()}`, { cache: 'no-store' })
+      const body = await res.json()
+      if (!res.ok) throw new Error(body?.error || 'Search failed')
+      setRegistryResults(body?.skills || [])
+    } catch (err: any) {
+      setRegistryError(err?.message || 'Search failed')
+    } finally {
+      setRegistryLoading(false)
+    }
+  }
+
+  const installSkill = async (slug: string) => {
+    setInstalling(slug)
+    setInstallMessage(null)
+    try {
+      const res = await fetch('/api/skills/registry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source: registrySource, slug, targetRoot: installTarget }),
+      })
+      const body = await res.json()
+      if (!res.ok) {
+        const msg = body?.message || body?.error || 'Install failed'
+        setInstallMessage(`Failed: ${msg}`)
+      } else {
+        setInstallMessage(body?.message || 'Installed successfully')
+        await loadSkills()
+      }
+      setTimeout(() => setInstallMessage(null), 5000)
+    } catch (err: any) {
+      setInstallMessage(`Install error: ${err?.message}`)
+      setTimeout(() => setInstallMessage(null), 5000)
+    } finally {
+      setInstalling(null)
+    }
+  }
+
+  const checkSecurity = async (skill: SkillSummary) => {
+    try {
+      const params = new URLSearchParams({ mode: 'check', source: skill.source, name: skill.name })
+      const res = await fetch(`/api/skills?${params.toString()}`, { cache: 'no-store' })
+      const body = await res.json()
+      if (res.ok && body?.security) {
+        await loadSkills() // refresh to pick up updated security_status
+      }
+    } catch { /* best-effort */ }
+  }
+
+  const securityBadge = (status?: string | null) => {
+    if (!status || status === 'unchecked') return <span className="text-2xs text-muted-foreground/50">unchecked</span>
+    if (status === 'clean') return <span className="text-2xs text-emerald-400">clean</span>
+    if (status === 'warning') return <span className="text-2xs text-amber-400">warning</span>
+    if (status === 'rejected') return <span className="text-2xs text-rose-400">rejected</span>
+    return null
+  }
+
   return (
     <div className="p-4 md:p-6 max-w-6xl mx-auto space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-foreground">Skills</h2>
+          <h2 className="text-lg font-semibold text-foreground">Skills Hub</h2>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Installed skill packs available to agents in {dashboardMode === 'local' ? 'local mode' : 'gateway mode'}.
+            Manage skills locally and browse external registries. {dashboardMode === 'local' ? 'Local mode' : 'Gateway mode'}.
           </p>
         </div>
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Filter skills..."
-          className="h-9 w-full sm:w-72 rounded-md border border-border bg-secondary/50 px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
-        />
-      </div>
-
-      <div className="rounded-lg border border-border bg-card p-3 space-y-2">
-        <div className="flex items-center justify-between gap-2">
-          <div className="text-xs text-muted-foreground">Disk sync is active (auto-refresh every 10s)</div>
-          <Button variant="outline" size="xs" onClick={refresh} disabled={loading || saving}>Refresh Now</Button>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-[180px_1fr_auto] gap-2">
-          <select
-            value={createSource}
-            onChange={(e) => setCreateSource(e.target.value)}
-            className="h-9 rounded-md border border-border bg-secondary/50 px-2 text-xs text-foreground"
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setActiveTab('installed')}
+            className={`px-3 py-1.5 text-xs rounded-md transition-colors ${activeTab === 'installed' ? 'bg-primary text-primary-foreground' : 'bg-secondary/50 text-muted-foreground hover:text-foreground'}`}
           >
-            <option value="user-codex">user-codex</option>
-            <option value="user-agents">user-agents</option>
-            <option value="project-codex">project-codex</option>
-            <option value="project-agents">project-agents</option>
-          </select>
-          <input
-            value={createName}
-            onChange={(e) => setCreateName(e.target.value)}
-            placeholder="new-skill-name"
-            className="h-9 rounded-md border border-border bg-secondary/50 px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
-          />
-          <Button variant="default" size="sm" onClick={createSkill} disabled={saving || !createName.trim()}>
-            Add Skill
-          </Button>
+            Installed
+          </button>
+          <button
+            onClick={() => setActiveTab('registry')}
+            className={`px-3 py-1.5 text-xs rounded-md transition-colors ${activeTab === 'registry' ? 'bg-primary text-primary-foreground' : 'bg-secondary/50 text-muted-foreground hover:text-foreground'}`}
+          >
+            Registry
+          </button>
         </div>
-        <textarea
-          value={createContent}
-          onChange={(e) => setCreateContent(e.target.value)}
-          className="w-full h-24 rounded-md border border-border bg-secondary/30 p-2 text-xs text-foreground font-mono focus:outline-none"
-          placeholder="Initial SKILL.md content"
-        />
-        {createError && <p className="text-xs text-destructive">{createError}</p>}
       </div>
 
-      {loading ? (
-        <div className="rounded-lg border border-border bg-card px-4 py-6 text-sm text-muted-foreground">Loading skills...</div>
-      ) : error ? (
-        <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-6 text-sm text-destructive">{error}</div>
-      ) : (
+      {installMessage && (
+        <div className={`rounded-lg border px-4 py-2 text-xs ${
+          installMessage.startsWith('Failed') || installMessage.startsWith('Install error')
+            ? 'bg-destructive/10 border-destructive/30 text-destructive'
+            : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+        }`}>
+          {installMessage}
+        </div>
+      )}
+
+      {activeTab === 'installed' && (
         <>
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-            {(data?.groups || []).map((group) => (
-              <div key={group.source} className="rounded-lg border border-border bg-card p-3">
-                <div className="text-xs uppercase tracking-wide text-muted-foreground">{group.source}</div>
-                <div className="mt-1 text-lg font-semibold text-foreground">{group.skills.length}</div>
-                <div className="mt-1 text-2xs text-muted-foreground truncate">{group.path}</div>
-              </div>
-            ))}
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Filter installed skills..."
+            className="h-9 w-full rounded-md border border-border bg-secondary/50 px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
+          />
+
+          <div className="rounded-lg border border-border bg-card p-3 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-xs text-muted-foreground">Bidirectional disk sync active (scheduler every 60s)</div>
+              <Button variant="outline" size="xs" onClick={refresh} disabled={loading || saving}>Refresh Now</Button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-[240px_1fr_auto] gap-2">
+              <select
+                value={createSource}
+                onChange={(e) => setCreateSource(e.target.value)}
+                className="h-9 rounded-md border border-border bg-secondary/50 px-2 text-xs text-foreground"
+              >
+                <option value="user-agents">{SOURCE_LABELS['user-agents']}</option>
+                <option value="user-codex">{SOURCE_LABELS['user-codex']}</option>
+                <option value="project-agents">{SOURCE_LABELS['project-agents']}</option>
+                <option value="project-codex">{SOURCE_LABELS['project-codex']}</option>
+                {dashboardMode === 'full' && (
+                  <option value="openclaw">{SOURCE_LABELS['openclaw']}</option>
+                )}
+              </select>
+              <input
+                value={createName}
+                onChange={(e) => setCreateName(e.target.value)}
+                placeholder="new-skill-name"
+                className="h-9 rounded-md border border-border bg-secondary/50 px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
+              />
+              <Button variant="default" size="sm" onClick={createSkill} disabled={saving || !createName.trim()}>
+                Add Skill
+              </Button>
+            </div>
+            <textarea
+              value={createContent}
+              onChange={(e) => setCreateContent(e.target.value)}
+              className="w-full h-24 rounded-md border border-border bg-secondary/30 p-2 text-xs text-foreground font-mono focus:outline-none"
+              placeholder="Initial SKILL.md content"
+            />
+            {createError && <p className="text-xs text-destructive">{createError}</p>}
           </div>
 
-          <div className="rounded-lg border border-border bg-card overflow-hidden">
-            <div className="px-4 py-3 border-b border-border text-xs text-muted-foreground">
-              {filtered.length} of {data?.total || 0} skills
-            </div>
-            {filtered.length === 0 ? (
-              <div className="px-4 py-6 text-sm text-muted-foreground">No skills matched this filter.</div>
-            ) : (
-              <div className="divide-y divide-border">
-                {filtered.map((skill) => (
-                  <div key={skill.id} className="px-4 py-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="font-medium text-sm text-foreground">{skill.name}</div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-2xs rounded-full border border-border px-2 py-0.5 text-muted-foreground">
-                          {skill.source}
-                        </span>
-                        <Button variant="outline" size="xs" onClick={() => setSelectedSkill(skill)}>
-                          View
-                        </Button>
+          {loading ? (
+            <div className="rounded-lg border border-border bg-card px-4 py-6 text-sm text-muted-foreground">Loading skills...</div>
+          ) : error ? (
+            <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-6 text-sm text-destructive">{error}</div>
+          ) : (
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                {(data?.groups || []).filter(g => g.skills.length > 0 || ['user-agents', 'user-codex', 'openclaw'].includes(g.source)).map((group) => (
+                  <div key={group.source} className={`rounded-lg border bg-card p-3 ${
+                    group.source === 'openclaw' ? 'border-cyan-500/30' : 'border-border'
+                  }`}>
+                    <div className="text-xs font-medium text-muted-foreground">{SOURCE_LABELS[group.source] || group.source}</div>
+                    <div className="mt-1 text-lg font-semibold text-foreground">{group.skills.length}</div>
+                    <div className="mt-1 text-2xs text-muted-foreground truncate">{group.path}</div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="rounded-lg border border-border bg-card overflow-hidden">
+                <div className="px-4 py-3 border-b border-border text-xs text-muted-foreground">
+                  {filtered.length} of {data?.total || 0} skills
+                </div>
+                {filtered.length === 0 ? (
+                  <div className="px-4 py-6 text-sm text-muted-foreground">No skills matched this filter.</div>
+                ) : (
+                  <div className="divide-y divide-border">
+                    {filtered.map((skill) => (
+                      <div key={skill.id} className="px-4 py-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-2">
+                            <div className="font-medium text-sm text-foreground">{skill.name}</div>
+                            {skill.registry_slug && (
+                              <span className="text-2xs rounded-full bg-violet-500/15 text-violet-300 border border-violet-500/30 px-1.5 py-0.5">
+                                registry
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {securityBadge(skill.security_status)}
+                            <span className={`text-2xs rounded-full border px-2 py-0.5 ${
+                              skill.source === 'openclaw'
+                                ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30'
+                                : skill.source.startsWith('project-')
+                                  ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                                  : 'border-border text-muted-foreground'
+                            }`}>
+                              {SOURCE_LABELS[skill.source] || skill.source}
+                            </span>
+                            <Button variant="outline" size="xs" onClick={() => checkSecurity(skill)}>
+                              Scan
+                            </Button>
+                            <Button variant="outline" size="xs" onClick={() => setSelectedSkill(skill)}>
+                              View
+                            </Button>
+                          </div>
+                        </div>
+                        {skill.description && (
+                          <p className="mt-1 text-xs text-muted-foreground">{skill.description}</p>
+                        )}
+                        <p className="mt-1 text-2xs text-muted-foreground/70 break-all">{skill.path}</p>
                       </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </>
+      )}
+
+      {activeTab === 'registry' && (
+        <>
+          <div className="rounded-lg border border-border bg-card p-3 space-y-3">
+            <div className="flex items-center gap-2">
+              <select
+                value={registrySource}
+                onChange={(e) => setRegistrySource(e.target.value as 'clawhub' | 'skills-sh')}
+                className="h-9 rounded-md border border-border bg-secondary/50 px-2 text-xs text-foreground"
+              >
+                <option value="clawhub">ClawdHub</option>
+                <option value="skills-sh">skills.sh</option>
+              </select>
+              <input
+                value={registryQuery}
+                onChange={(e) => setRegistryQuery(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && searchRegistry()}
+                placeholder="Search skills..."
+                className="h-9 flex-1 rounded-md border border-border bg-secondary/50 px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
+              />
+              <Button variant="default" size="sm" onClick={searchRegistry} disabled={registryLoading || !registryQuery.trim()}>
+                {registryLoading ? 'Searching...' : 'Search'}
+              </Button>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">Install to:</span>
+              <select
+                value={installTarget}
+                onChange={(e) => setInstallTarget(e.target.value)}
+                className="h-7 rounded-md border border-border bg-secondary/50 px-2 text-xs text-foreground"
+              >
+                <option value="user-agents">{SOURCE_LABELS['user-agents']}</option>
+                <option value="user-codex">{SOURCE_LABELS['user-codex']}</option>
+                <option value="project-agents">{SOURCE_LABELS['project-agents']}</option>
+                <option value="project-codex">{SOURCE_LABELS['project-codex']}</option>
+                {dashboardMode === 'full' && (
+                  <option value="openclaw">{SOURCE_LABELS['openclaw']}</option>
+                )}
+              </select>
+            </div>
+          </div>
+
+          {registryError && (
+            <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+              {registryError}
+            </div>
+          )}
+
+          {registryResults.length > 0 ? (
+            <div className="rounded-lg border border-border bg-card overflow-hidden">
+              <div className="px-4 py-3 border-b border-border text-xs text-muted-foreground">
+                {registryResults.length} results from {registrySource === 'clawhub' ? 'ClawdHub' : 'skills.sh'}
+              </div>
+              <div className="divide-y divide-border">
+                {registryResults.map((skill) => (
+                  <div key={skill.slug} className="px-4 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="font-medium text-sm text-foreground">{skill.name}</div>
+                        <div className="text-2xs text-muted-foreground mt-0.5">
+                          by {skill.author} • v{skill.version}
+                          {skill.installCount != null && ` • ${skill.installCount} installs`}
+                        </div>
+                      </div>
+                      <Button
+                        variant="default"
+                        size="xs"
+                        onClick={() => installSkill(skill.slug)}
+                        disabled={installing === skill.slug}
+                      >
+                        {installing === skill.slug ? 'Installing...' : 'Install'}
+                      </Button>
                     </div>
                     {skill.description && (
                       <p className="mt-1 text-xs text-muted-foreground">{skill.description}</p>
                     )}
-                    <p className="mt-1 text-2xs text-muted-foreground/70 break-all">{skill.path}</p>
+                    {skill.tags && skill.tags.length > 0 && (
+                      <div className="mt-1.5 flex flex-wrap gap-1">
+                        {skill.tags.slice(0, 5).map((tag) => (
+                          <span key={tag} className="text-2xs rounded-full bg-secondary/50 border border-border px-1.5 py-0.5 text-muted-foreground">
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
-            )}
-          </div>
+            </div>
+          ) : registryLoading ? (
+            <div className="rounded-lg border border-border bg-card px-4 py-6 text-sm text-muted-foreground">Searching...</div>
+          ) : (
+            <div className="rounded-lg border border-border bg-card px-4 py-6 text-sm text-muted-foreground">
+              Search ClawdHub or skills.sh to discover and install agent skills.
+            </div>
+          )}
         </>
       )}
 
@@ -349,11 +593,32 @@ export function SkillsPanel() {
               ) : drawerError ? (
                 <div className="p-4 text-sm text-destructive">{drawerError}</div>
               ) : selectedContent ? (
-                <textarea
-                  value={draftContent}
-                  onChange={(e) => setDraftContent(e.target.value)}
-                  className="w-full h-full min-h-[70vh] bg-card p-4 text-xs text-muted-foreground leading-5 font-mono whitespace-pre rounded-none border-0 focus:outline-none"
-                />
+                <>
+                  {selectedContent.security && selectedContent.security.issues.length > 0 && (
+                    <div className={`mx-4 mt-3 rounded-lg border p-3 text-xs ${
+                      selectedContent.security.status === 'rejected'
+                        ? 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+                        : selectedContent.security.status === 'warning'
+                          ? 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+                          : 'bg-slate-500/10 border-slate-500/30 text-slate-300'
+                    }`}>
+                      <div className="font-medium mb-1">Security: {selectedContent.security.status}</div>
+                      {selectedContent.security.issues.map((issue, i) => (
+                        <div key={i} className="flex items-start gap-1.5 mt-1">
+                          <span className={`mt-0.5 text-2xs font-mono ${
+                            issue.severity === 'critical' ? 'text-rose-400' : issue.severity === 'warning' ? 'text-amber-400' : 'text-slate-400'
+                          }`}>[{issue.severity}]</span>
+                          <span>{issue.description}{issue.line ? ` (line ${issue.line})` : ''}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <textarea
+                    value={draftContent}
+                    onChange={(e) => setDraftContent(e.target.value)}
+                    className="w-full h-full min-h-[70vh] bg-card p-4 text-xs text-muted-foreground leading-5 font-mono whitespace-pre rounded-none border-0 focus:outline-none"
+                  />
+                </>
               ) : (
                 <div className="p-4 text-sm text-muted-foreground">No content.</div>
               )}

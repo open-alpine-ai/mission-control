@@ -7,6 +7,8 @@ import { logger } from './logger'
 import { processWebhookRetries } from './webhooks'
 import { syncClaudeSessions } from './claude-sessions'
 import { pruneGatewaySessionsOlderThan } from './sessions'
+import { syncSkillsFromDisk } from './skill-sync'
+import { syncLocalAgents } from './local-agent-sync'
 
 const BACKUP_DIR = join(dirname(config.dbPath), 'backups')
 
@@ -272,9 +274,27 @@ export function initScheduler() {
     running: false,
   })
 
+  tasks.set('skill_sync', {
+    name: 'Skill Sync',
+    intervalMs: TICK_MS, // Every 60s — lightweight file stat checks
+    lastRun: null,
+    nextRun: now + 10_000, // First scan 10s after startup
+    enabled: true,
+    running: false,
+  })
+
+  tasks.set('local_agent_sync', {
+    name: 'Local Agent Sync',
+    intervalMs: TICK_MS, // Every 60s — lightweight dir scan
+    lastRun: null,
+    nextRun: now + 15_000, // First scan 15s after startup
+    enabled: true,
+    running: false,
+  })
+
   // Start the tick loop
   tickInterval = setInterval(tick, TICK_MS)
-  logger.info('Scheduler initialized - backup at ~3AM, cleanup at ~4AM, heartbeat every 5m, webhook retry every 60s, claude scan every 60s')
+  logger.info('Scheduler initialized - backup at ~3AM, cleanup at ~4AM, heartbeat every 5m, webhook/claude/skill/agent sync every 60s')
 }
 
 /** Calculate ms until next occurrence of a given hour (UTC) */
@@ -300,8 +320,10 @@ async function tick() {
       : id === 'auto_cleanup' ? 'general.auto_cleanup'
       : id === 'webhook_retry' ? 'webhooks.retry_enabled'
       : id === 'claude_session_scan' ? 'general.claude_session_scan'
+      : id === 'skill_sync' ? 'general.skill_sync'
+      : id === 'local_agent_sync' ? 'general.local_agent_sync'
       : 'general.agent_heartbeat'
-    const defaultEnabled = id === 'agent_heartbeat' || id === 'webhook_retry' || id === 'claude_session_scan'
+    const defaultEnabled = id === 'agent_heartbeat' || id === 'webhook_retry' || id === 'claude_session_scan' || id === 'skill_sync' || id === 'local_agent_sync'
     if (!isSettingEnabled(settingKey, defaultEnabled)) continue
 
     task.running = true
@@ -310,6 +332,8 @@ async function tick() {
         : id === 'agent_heartbeat' ? await runHeartbeatCheck()
         : id === 'webhook_retry' ? await processWebhookRetries()
         : id === 'claude_session_scan' ? await syncClaudeSessions()
+        : id === 'skill_sync' ? await syncSkillsFromDisk()
+        : id === 'local_agent_sync' ? await syncLocalAgents()
         : await runCleanup()
       task.lastResult = { ...result, timestamp: now }
     } catch (err: any) {
@@ -339,8 +363,10 @@ export function getSchedulerStatus() {
       : id === 'auto_cleanup' ? 'general.auto_cleanup'
       : id === 'webhook_retry' ? 'webhooks.retry_enabled'
       : id === 'claude_session_scan' ? 'general.claude_session_scan'
+      : id === 'skill_sync' ? 'general.skill_sync'
+      : id === 'local_agent_sync' ? 'general.local_agent_sync'
       : 'general.agent_heartbeat'
-    const defaultEnabled = id === 'agent_heartbeat' || id === 'webhook_retry' || id === 'claude_session_scan'
+    const defaultEnabled = id === 'agent_heartbeat' || id === 'webhook_retry' || id === 'claude_session_scan' || id === 'skill_sync' || id === 'local_agent_sync'
     result.push({
       id,
       name: task.name,
@@ -362,6 +388,8 @@ export async function triggerTask(taskId: string): Promise<{ ok: boolean; messag
   if (taskId === 'agent_heartbeat') return runHeartbeatCheck()
   if (taskId === 'webhook_retry') return processWebhookRetries()
   if (taskId === 'claude_session_scan') return syncClaudeSessions()
+  if (taskId === 'skill_sync') return syncSkillsFromDisk()
+  if (taskId === 'local_agent_sync') return syncLocalAgents()
   return { ok: false, message: `Unknown task: ${taskId}` }
 }
 
