@@ -6,9 +6,9 @@ import { logger } from '@/lib/logger'
 const ONBOARDING_STEPS = [
   { id: 'welcome', title: 'Welcome' },
   { id: 'credentials', title: 'Credentials' },
-  { id: 'gateway', title: 'Gateway' },
+  { id: 'gateway', title: 'Agent Setup' },
   { id: 'security', title: 'Security Scan' },
-  { id: 'next-steps', title: 'Next Steps' },
+  { id: 'next-steps', title: 'Get Started' },
 ] as const
 
 function getOnboardingSetting(key: string): string {
