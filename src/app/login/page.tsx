@@ -17,6 +17,8 @@ export default function LoginPage() {
   const [googleReady, setGoogleReady] = useState(false)
   const router = useRouter()
   const googleBtnRef = useRef<HTMLDivElement | null>(null)
+  const usernameRef = useRef<HTMLInputElement | null>(null)
+  const passwordRef = useRef<HTMLInputElement | null>(null)
 
   const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || ''
 
@@ -51,6 +53,16 @@ export default function LoginPage() {
       setLoading(false)
     }
   }
+
+  useEffect(() => {
+    // Some browsers autofill without firing onChange, leaving React state empty.
+    // Sync once after mount so the Sign in button enables correctly.
+    const t = setTimeout(() => {
+      if (usernameRef.current?.value && !username) setUsername(usernameRef.current.value)
+      if (passwordRef.current?.value && !password) setPassword(passwordRef.current.value)
+    }, 150)
+    return () => clearTimeout(t)
+  }, [username, password])
 
   useEffect(() => {
     if (!googleClientId) return
@@ -119,8 +131,10 @@ export default function LoginPage() {
             <label htmlFor="username" className="block text-sm font-medium text-foreground mb-1.5">Username</label>
             <input
               id="username"
+              ref={usernameRef}
               type="text"
               value={username}
+              onInput={(e) => setUsername((e.target as HTMLInputElement).value)}
               onChange={(e) => setUsername(e.target.value)}
               className="w-full h-10 px-3 rounded-lg bg-secondary border border-border text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-smooth"
               placeholder="Enter username"
@@ -135,8 +149,10 @@ export default function LoginPage() {
             <label htmlFor="password" className="block text-sm font-medium text-foreground mb-1.5">Password</label>
             <input
               id="password"
+              ref={passwordRef}
               type="password"
               value={password}
+              onInput={(e) => setPassword((e.target as HTMLInputElement).value)}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full h-10 px-3 rounded-lg bg-secondary border border-border text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-smooth"
               placeholder="Enter password"
