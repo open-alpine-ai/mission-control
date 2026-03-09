@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       enabled: false,
       connected: false,
-      transport: 'cli',
+      transport: 'mcp',
       reason: 'MCP endpoint URL not configured',
     })
   }
