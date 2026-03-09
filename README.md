@@ -2,9 +2,9 @@
 
 # Mission Control
 
-**The open-source dashboard for AI agent orchestration.**
+**Open Alpine Mission Control — production operations cockpit for AI agent teams.**
 
-Manage agent fleets, track tasks, monitor costs, and orchestrate workflows — all from a single pane of glass.
+Operate multi-agent delivery with governance-first workflows: task routing, quality gates, gateway diagnostics, auditability, and incident response in one control surface.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Next.js 16](https://img.shields.io/badge/Next.js-16-black?logo=next.js)](https://nextjs.org/)
@@ -12,7 +12,7 @@ Manage agent fleets, track tasks, monitor costs, and orchestrate workflows — a
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-3178C6?logo=typescript&logoColor=white)](https://typescriptlang.org/)
 [![SQLite](https://img.shields.io/badge/SQLite-WAL-003B57?logo=sqlite&logoColor=white)](https://sqlite.org/)
 
-![Mission Control Dashboard](docs/mission-control.jpg)
+![Mission Control Agents Panel](docs/agents-menu.jpg)
 
 </div>
 
@@ -36,7 +36,7 @@ Running AI agents at scale means juggling sessions, tasks, costs, and reliabilit
 > **Requires [pnpm](https://pnpm.io/installation)** — Mission Control uses pnpm for dependency management. Install it with `npm install -g pnpm` or `corepack enable`.
 
 ```bash
-git clone https://github.com/builderz-labs/mission-control.git
+git clone https://github.com/open-alpine-ai/mission-control.git
 cd mission-control
 pnpm install
 cp .env.example .env    # edit with your values
@@ -384,6 +384,10 @@ See [`.env.example`](.env.example) for the complete list. Key variables:
 | `OPENCLAW_TOOLS_PROFILE` | No | Tools profile for `sessions_spawn` (recommended: `coding`) |
 | `NEXT_PUBLIC_GATEWAY_TOKEN` | No | Browser-side gateway auth token (must use `NEXT_PUBLIC_` prefix) |
 | `NEXT_PUBLIC_GATEWAY_CLIENT_ID` | No | Gateway UI client ID for websocket handshake (default: `openclaw-control-ui`) |
+| `MC_MCP_ENDPOINT_URL` | No | MCP endpoint for server-side control actions (MCP-first mode) |
+| `MC_MCP_API_TOKEN` | No | Bearer token for MCP endpoint (required if MCP endpoint is set) |
+| `MC_MCP_TIMEOUT_MS` | No | MCP call timeout (default: `10000`) |
+| `MC_MCP_RETRY_COUNT` | No | MCP retry attempts on transient failures (default: `2`) |
 | `OPENCLAW_MEMORY_DIR` | No | Memory browser root (see note below) |
 | `MC_CLAUDE_HOME` | No | Path to `~/.claude` directory (default: `~/.claude`) |
 | `MC_TRUSTED_PROXIES` | No | Comma-separated trusted proxy IPs for XFF parsing |
@@ -460,6 +464,25 @@ This enables:
 Notes:
 - Keep `gateway.controlUi.dangerouslyDisableDeviceAuth=false` once HTTPS is stable.
 - Ensure your HTTPS origin is in OpenClaw `gateway.controlUi.allowedOrigins`.
+
+## MCP-mandatory control mode
+
+Mission Control now runs control-plane actions (agent message/wake, task broadcast, coordinator invoke/wait)
+through a server-side MCP transport. Direct control fallback via local gateway CLI/websocket path is disabled for these actions.
+
+Configure in **Settings → Gateway** or via env:
+
+```bash
+MC_MCP_ENDPOINT_URL=https://your-mcp-endpoint/rpc
+MC_MCP_API_TOKEN=replace-with-strong-token
+MC_MCP_TIMEOUT_MS=10000
+MC_MCP_RETRY_COUNT=2
+```
+
+Security model:
+- MCP token auth is mandatory when MCP endpoint is configured.
+- Mission Control records audit events for MCP actions (`action: mcp_action`) with method, outcome, attempts, and error reason.
+- Keep MCP endpoint private to trusted network paths and rotate tokens regularly.
 
 ## Development
 

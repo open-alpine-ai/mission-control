@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase, db_helpers } from '@/lib/db'
-import { runOpenClaw } from '@/lib/command'
+import { runGatewayControl } from '@/lib/mcp-transport'
 import { requireRole } from '@/lib/auth'
 import { logger } from '@/lib/logger'
 
@@ -48,17 +48,21 @@ export async function POST(
     const results = await Promise.allSettled(
       agents.map(async (agent) => {
         if (!agent.session_key) return 'skipped'
-        await runOpenClaw(
-          [
-            'gateway',
-            'sessions_send',
-            '--session',
-            agent.session_key,
-            '--message',
-            `[Task ${task.id}] ${task.title}\nFrom ${author}: ${message}`
-          ],
-          { timeoutMs: 10000 }
+        const sendResult = await runGatewayControl(
+          'sessions_send',
+          {
+            session: agent.session_key,
+            message: `[Task ${task.id}] ${task.title}\nFrom ${author}: ${message}`,
+            timeoutMs: 10000,
+          },
+          {
+            actor: auth.user.username,
+            actor_id: auth.user.id,
+            ip_address: request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown',
+            user_agent: request.headers.get('user-agent') || undefined,
+          }
         )
+        if (!sendResult.ok) throw new Error(sendResult.error || 'broadcast delivery failed')
         db_helpers.createNotification(
           agent.name,
           'message',

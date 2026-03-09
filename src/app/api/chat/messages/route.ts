@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase, db_helpers, Message } from '@/lib/db'
-import { runOpenClaw } from '@/lib/command'
+import { runGatewayControl } from '@/lib/mcp-transport'
 import { getAllGatewaySessions } from '@/lib/sessions'
 import { eventBus } from '@/lib/event-bus'
 import { requireRole } from '@/lib/auth'
@@ -310,20 +310,18 @@ export async function POST(request: NextRequest) {
             if (sessionKey) invokeParams.sessionKey = sessionKey
             else invokeParams.agentId = openclawAgentId
 
-            const invokeResult = await runOpenClaw(
-              [
-                'gateway',
-                'call',
-                'agent',
-                '--timeout',
-                '10000',
-                '--params',
-                JSON.stringify(invokeParams),
-                '--json',
-              ],
-              { timeoutMs: 12000 }
+            const invokeResult = await runGatewayControl(
+              'agent',
+              { ...invokeParams, timeout: 10000 },
+              {
+                actor: auth.user.username,
+                actor_id: auth.user.id,
+                ip_address: request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown',
+                user_agent: request.headers.get('user-agent') || undefined,
+              }
             )
-            const acceptedPayload = parseGatewayJson(invokeResult.stdout)
+            if (!invokeResult.ok) throw new Error(invokeResult.error || 'Gateway invoke failed')
+            const acceptedPayload = parseGatewayJson(typeof invokeResult.data === 'string' ? invokeResult.data : JSON.stringify(invokeResult.data || {}))
             forwardInfo.delivered = true
             forwardInfo.session = sessionKey || openclawAgentId || undefined
             if (typeof acceptedPayload?.runId === 'string' && acceptedPayload.runId) {
@@ -388,21 +386,19 @@ export async function POST(request: NextRequest) {
             // Best effort: wait briefly and surface completion/error feedback.
             if (forwardInfo.runId) {
               try {
-                const waitResult = await runOpenClaw(
-                  [
-                    'gateway',
-                    'call',
-                    'agent.wait',
-                    '--timeout',
-                    '8000',
-                    '--params',
-                    JSON.stringify({ runId: forwardInfo.runId, timeoutMs: 6000 }),
-                    '--json',
-                  ],
-                  { timeoutMs: 9000 }
+                const waitResult = await runGatewayControl(
+                  'agent.wait',
+                  { runId: forwardInfo.runId, timeoutMs: 6000, timeout: 8000 },
+                  {
+                    actor: auth.user.username,
+                    actor_id: auth.user.id,
+                    ip_address: request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown',
+                    user_agent: request.headers.get('user-agent') || undefined,
+                  }
                 )
+                if (!waitResult.ok) throw new Error(waitResult.error || 'Failed to wait for agent response')
 
-                const waitPayload = parseGatewayJson(waitResult.stdout)
+                const waitPayload = parseGatewayJson(typeof waitResult.data === 'string' ? waitResult.data : JSON.stringify(waitResult.data || {}))
                 const waitStatus = String(waitPayload?.status || '').toLowerCase()
 
                 if (waitStatus === 'error') {

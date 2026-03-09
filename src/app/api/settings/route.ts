@@ -28,6 +28,10 @@ const settingDefinitions: Record<string, { category: string; description: string
   // Gateway
   'gateway.host': { category: 'gateway', description: 'Gateway hostname', default: config.gatewayHost },
   'gateway.port': { category: 'gateway', description: 'Gateway port number', default: String(config.gatewayPort) },
+  'gateway.mcp_endpoint_url': { category: 'gateway', description: 'MCP endpoint URL for server-side control calls', default: process.env.MC_MCP_ENDPOINT_URL || '' },
+  'gateway.mcp_api_token': { category: 'gateway', description: 'MCP API bearer token (required when endpoint URL is set)', default: process.env.MC_MCP_API_TOKEN || '' },
+  'gateway.mcp_timeout_ms': { category: 'gateway', description: 'MCP request timeout in milliseconds', default: process.env.MC_MCP_TIMEOUT_MS || '10000' },
+  'gateway.mcp_retry_count': { category: 'gateway', description: 'MCP retry attempts for transient failures', default: process.env.MC_MCP_RETRY_COUNT || '2' },
 
   // General
   'general.site_name': { category: 'general', description: 'Mission Control display name', default: 'Mission Control' },

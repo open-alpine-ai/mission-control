@@ -2,6 +2,28 @@
 
 All notable changes to Mission Control are documented in this file.
 
+## [1.40.0] - 2026-03-09
+
+### Added
+- MCP transport abstraction for Mission Control control-plane actions (`src/lib/mcp-transport.ts`).
+- MCP settings in Gateway configuration (`gateway.mcp_endpoint_url`, `gateway.mcp_api_token`, `gateway.mcp_timeout_ms`, `gateway.mcp_retry_count`).
+- MCP connection status endpoint (`GET /api/mcp/status`) with explicit error reason reporting.
+- MCP status panel in Gateway Manager UI with connected/disconnected state and refresh.
+- MCP transport unit tests covering success, auth failure, timeout/unreachable, and retry behavior.
+
+### Changed
+- Control operations now use MCP transport path:
+  - agent direct message
+  - agent wake
+  - task broadcast
+  - coordinator invoke/wait flows
+- MCP is mandatory for control operations when using this release path; legacy direct CLI/websocket fallback for these actions is disabled.
+- README and deployment docs updated for MCP-mandatory setup and security model.
+
+### Fixed
+- Reduced operational dependence on fragile browser websocket pairing loops for control actions.
+- Improved operator diagnostics with explicit MCP failure reasons in UI/API.
+
 ## [1.33.0] - 2026-03-09
 
 ### Fixed

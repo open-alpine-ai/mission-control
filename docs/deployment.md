@@ -87,7 +87,24 @@ See `.env.example` for the full list. Key variables:
 | `API_KEY` | Yes | - | API key for headless access |
 | `PORT` | No | `3005` (direct) / `3000` (Docker) | Server port |
 | `OPENCLAW_HOME` | No | - | Path to OpenClaw installation |
+| `MC_MCP_ENDPOINT_URL` | No | - | MCP endpoint URL for server-side control transport |
+| `MC_MCP_API_TOKEN` | No | - | MCP bearer token (required when endpoint URL is set) |
+| `MC_MCP_TIMEOUT_MS` | No | `10000` | MCP request timeout in milliseconds |
+| `MC_MCP_RETRY_COUNT` | No | `2` | Retry attempts for transient MCP failures |
 | `MC_ALLOWED_HOSTS` | No | `localhost,127.0.0.1` | Allowed hosts in production |
+
+## MCP-mandatory Mode (Control operations)
+
+Mission Control routes control-plane operations through a backend MCP endpoint. Direct control fallback via local gateway CLI/websocket path is disabled for these actions.
+
+1. Set `MC_MCP_ENDPOINT_URL` and `MC_MCP_API_TOKEN`.
+2. Tune `MC_MCP_TIMEOUT_MS` and `MC_MCP_RETRY_COUNT` for your network.
+3. Verify status in Mission Control: **Gateway Manager → MCP Control Transport**.
+
+Security requirements:
+- Require bearer token authentication on the MCP endpoint.
+- Restrict MCP endpoint exposure to trusted network boundaries.
+- Audit MCP actions via Mission Control audit log (`mcp_action`).
 
 ## Troubleshooting
 

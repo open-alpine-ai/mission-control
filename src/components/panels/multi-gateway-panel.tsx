@@ -46,6 +46,16 @@ interface GatewayHealthProbe {
   error?: string
 }
 
+interface McpStatus {
+  enabled: boolean
+  connected: boolean
+  transport: 'mcp' | 'cli'
+  reason?: string
+  attempts?: number
+  statusCode?: number
+  latencyMs?: number
+}
+
 export function MultiGatewayPanel() {
   const [gateways, setGateways] = useState<Gateway[]>([])
   const [directConnections, setDirectConnections] = useState<DirectConnection[]>([])
@@ -53,6 +63,7 @@ export function MultiGatewayPanel() {
   const [showAdd, setShowAdd] = useState(false)
   const [probing, setProbing] = useState<number | null>(null)
   const [healthByGatewayId, setHealthByGatewayId] = useState<Map<number, GatewayHealthProbe>>(new Map())
+  const [mcpStatus, setMcpStatus] = useState<McpStatus | null>(null)
   const { connection } = useMissionControl()
   const { connect } = useWebSocket()
 
@@ -73,7 +84,17 @@ export function MultiGatewayPanel() {
     } catch { /* ignore */ }
   }, [])
 
-  useEffect(() => { fetchGateways(); fetchDirectConnections() }, [fetchGateways, fetchDirectConnections])
+  const fetchMcpStatus = useCallback(async () => {
+    try {
+      const res = await fetch('/api/mcp/status', { cache: 'no-store' })
+      const data = await res.json().catch(() => ({}))
+      setMcpStatus(data)
+    } catch {
+      setMcpStatus({ enabled: true, connected: false, transport: 'mcp', reason: 'Failed to fetch MCP status' })
+    }
+  }, [])
+
+  useEffect(() => { fetchGateways(); fetchDirectConnections(); fetchMcpStatus() }, [fetchGateways, fetchDirectConnections, fetchMcpStatus])
 
   const setPrimary = async (gw: Gateway) => {
     await fetch('/api/gateways', {
@@ -218,6 +239,35 @@ export function MultiGatewayPanel() {
           ))}
         </div>
       )}
+
+      {/* MCP control transport status */}
+      <div className="bg-card border border-border rounded-lg p-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold text-foreground">MCP Control Transport</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">Server-side control channel for gateway actions (no browser pairing required)</p>
+          </div>
+          <button
+            onClick={fetchMcpStatus}
+            className="h-7 px-2.5 rounded-md text-2xs font-medium bg-secondary text-foreground hover:bg-secondary/80 transition-smooth"
+          >
+            Refresh
+          </button>
+        </div>
+        <div className="mt-3 text-xs">
+          <div className="flex items-center gap-2">
+            <span className={`w-2 h-2 rounded-full ${mcpStatus?.connected ? 'bg-green-500' : 'bg-red-500'}`} />
+            <span className="font-medium text-foreground">
+              {mcpStatus?.connected ? 'Connected' : 'Disconnected'}
+            </span>
+            <span className="text-muted-foreground">Transport: {mcpStatus?.transport || 'unknown'}</span>
+            {typeof mcpStatus?.latencyMs === 'number' && <span className="text-muted-foreground">Latency: {mcpStatus.latencyMs}ms</span>}
+          </div>
+          {!mcpStatus?.connected && (
+            <p className="mt-2 text-red-400">Reason: {mcpStatus?.reason || 'No status available'}</p>
+          )}
+        </div>
+      </div>
 
       {/* Direct CLI Connections */}
       <div>

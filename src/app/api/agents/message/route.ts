@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase, db_helpers } from '@/lib/db'
-import { runOpenClaw } from '@/lib/command'
+import { runGatewayControl } from '@/lib/mcp-transport'
 import { requireRole } from '@/lib/auth'
 import { validateBody, createMessageSchema } from '@/lib/validation'
 import { mutationLimiter } from '@/lib/rate-limit'
@@ -34,17 +34,24 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    await runOpenClaw(
-      [
-        'gateway',
-        'sessions_send',
-        '--session',
-        agent.session_key,
-        '--message',
-        `Message from ${from}: ${message}`
-      ],
-      { timeoutMs: 10000 }
+    const sendResult = await runGatewayControl(
+      'sessions_send',
+      {
+        session: agent.session_key,
+        message: `Message from ${from}: ${message}`,
+        timeoutMs: 10000,
+      },
+      {
+        actor: auth.user.username,
+        actor_id: auth.user.id,
+        ip_address: request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown',
+        user_agent: request.headers.get('user-agent') || undefined,
+      }
     )
+
+    if (!sendResult.ok) {
+      return NextResponse.json({ error: sendResult.error || 'Failed to deliver message' }, { status: 502 })
+    }
 
     db_helpers.createNotification(
       to,
