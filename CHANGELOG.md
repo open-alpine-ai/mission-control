@@ -2,6 +2,16 @@
 
 All notable changes to Mission Control are documented in this file.
 
+## [1.42.0] - 2026-03-10
+
+### Fixed
+- Resolved Mission Control reconnect storm when gateway websocket pairing policy returns `1008 pairing required`.
+- When MCP transport is enabled, dashboard now skips automatic gateway websocket bootstrap, preventing repeated pairing-required disconnect loops from forcing UI disconnect state.
+
+### Changed
+- Startup connection logic now checks MCP status first (`/api/mcp/status`) and sets connection state from MCP transport status.
+- Control-plane remains MCP-mandatory while preserving dashboard availability for operators.
+
 ## [1.41.0] - 2026-03-10
 
 ### Changed

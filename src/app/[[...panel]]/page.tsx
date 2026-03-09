@@ -44,7 +44,7 @@ import { useMissionControl } from '@/store'
 export default function Home() {
   const router = useRouter()
   const { connect } = useWebSocket()
-  const { activeTab, setActiveTab, setCurrentUser, setDashboardMode, setGatewayAvailable, setSubscription, setUpdateAvailable, liveFeedOpen, toggleLiveFeed } = useMissionControl()
+  const { activeTab, setActiveTab, setCurrentUser, setDashboardMode, setGatewayAvailable, setSubscription, setUpdateAvailable, setConnection, liveFeedOpen, toggleLiveFeed } = useMissionControl()
 
   // Sync URL → Zustand activeTab
   const pathname = usePathname()
@@ -127,13 +127,33 @@ export default function Home() {
       connect(wsUrl, wsToken)
     }
 
-    // Check capabilities, then conditionally connect to gateway
+    // Check capabilities, then conditionally connect to gateway.
+    // If MCP transport is enabled, skip gateway websocket bootstrap to avoid pairing-required reconnect loops.
     fetch('/api/status?action=capabilities')
       .then(res => res.ok ? res.json() : null)
-      .then(data => {
+      .then(async (data) => {
         if (data?.subscription) {
           setSubscription(data.subscription)
         }
+
+        try {
+          const mcpRes = await fetch('/api/mcp/status')
+          const mcp = mcpRes.ok ? await mcpRes.json() : null
+          if (mcp?.enabled) {
+            setDashboardMode('full')
+            setGatewayAvailable(true)
+            setConnection({
+              isConnected: Boolean(mcp.connected),
+              url: 'mcp://control-transport',
+              reconnectAttempts: 0,
+            })
+            // MCP is mandatory for control-plane operations; do not auto-connect websocket.
+            return
+          }
+        } catch {
+          // fall through to legacy websocket bootstrap
+        }
+
         if (data && data.gateway === false) {
           setDashboardMode('local')
           setGatewayAvailable(false)
@@ -150,7 +170,7 @@ export default function Home() {
         // If capabilities check fails, still try to connect
         connectWithFallback()
       })
-  }, [connect, pathname, router, setCurrentUser, setDashboardMode, setGatewayAvailable, setSubscription, setUpdateAvailable])
+  }, [connect, pathname, router, setConnection, setCurrentUser, setDashboardMode, setGatewayAvailable, setSubscription, setUpdateAvailable])
 
   if (!isClient) {
     return (
