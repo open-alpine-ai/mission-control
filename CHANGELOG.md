@@ -2,6 +2,15 @@
 
 All notable changes to Mission Control are documented in this file.
 
+## [1.33.0] - 2026-03-09
+
+### Fixed
+- Removed the in-app promo banner block from the main Mission Control GUI ("Built with care by nyk …" and related links), per operator request.
+- Cleaned dashboard header area by removing the `PromoBanner` render path from `src/app/[[...panel]]/page.tsx`.
+
+### Changed
+- Rebuilt and redeployed container image for GUI consistency after removal.
+
 ## [1.32.0] - 2026-03-09
 
 ### Fixed
