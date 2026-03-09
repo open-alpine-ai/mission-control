@@ -2,6 +2,20 @@
 
 All notable changes to Mission Control are documented in this file.
 
+## [1.32.0] - 2026-03-09
+
+### Fixed
+- HTTPS-only rollout regression where `https://<host>:3000` was inaccessible after moving Mission Control behind a reverse proxy.
+- Gateway shown as "primary reachable" but disconnected in Mission Control after HTTPS cutover.
+- WebSocket disconnect loop (`1006`) caused by client attempting `wss://<host>` while gateway remained on plain WS (`:18789`).
+- HTTPS redirect host normalization bug (redirect target now preserves request host correctly).
+
+### Changed
+- Added/confirmed Caddy TLS bridge patterns for production:
+  - `https://<host>:3000` → Mission Control app (private backend)
+  - `wss://<host>` → OpenClaw gateway websocket backend (`127.0.0.1:18789`)
+- Documented HTTPS + gateway bridge troubleshooting in deployment docs.
+
 ## [1.3.0] - 2026-03-02
 
 ### Added

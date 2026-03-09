@@ -137,7 +137,10 @@ to your gateway config allowlist, for example:
 {
   "gateway": {
     "controlUi": {
-      "allowedOrigins": ["http://YOUR_HOST:3000"]
+      "allowedOrigins": [
+        "http://YOUR_HOST:3000",
+        "https://YOUR_HOST:3000"
+      ]
     }
   }
 }
@@ -149,3 +152,24 @@ Then restart the gateway and reconnect from Mission Control.
 
 Device identity signing uses WebCrypto and requires a secure browser context.
 Open Mission Control over HTTPS (or localhost), then reconnect.
+
+### "Gateway shows reachable but Mission Control is disconnected"
+
+If MC is loaded over HTTPS and the gateway endpoint resolves to `wss://YOUR_HOST`,
+ensure TLS websocket traffic is bridged to the gateway backend (`ws://127.0.0.1:18789`).
+A common Caddy pattern:
+
+```caddy
+https://YOUR_HOST {
+  tls internal
+  reverse_proxy 127.0.0.1:18789
+}
+
+https://YOUR_HOST:3000 {
+  tls internal
+  reverse_proxy 127.0.0.1:3100
+}
+```
+
+Symptoms of this mismatch include repeated websocket close `1006` and reconnect loops,
+while health probes still report primary gateway reachable.
