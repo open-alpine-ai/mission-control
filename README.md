@@ -439,6 +439,28 @@ OPENCLAW_CONFIG_PATH=/path/to/.openclaw/openclaw.json OPENCLAW_STATE_DIR=/path/t
 
 Network access is restricted by default in production. Set `MC_ALLOWED_HOSTS` (comma-separated) or `MC_ALLOW_ANY_HOST=1` to control access.
 
+## HTTPS deployment (recommended)
+
+For stable Mission Control ↔ Gateway authentication on mobile/remote clients, run Mission Control behind HTTPS.
+
+1. Set a real domain in `ops/caddy/Caddyfile` (replace `mc.your-domain.com`).
+2. Point DNS A/AAAA records to your server.
+3. Start with:
+
+```bash
+docker compose -f docker-compose.https.yml up -d
+```
+
+This enables:
+- automatic Let's Encrypt certificates via Caddy
+- HTTP→HTTPS redirect
+- `MC_ENFORCE_HTTPS=1`
+- HSTS (`MC_ENABLE_HSTS=1`)
+
+Notes:
+- Keep `gateway.controlUi.dangerouslyDisableDeviceAuth=false` once HTTPS is stable.
+- Ensure your HTTPS origin is in OpenClaw `gateway.controlUi.allowedOrigins`.
+
 ## Development
 
 ```bash

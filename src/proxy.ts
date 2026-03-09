@@ -52,6 +52,16 @@ function applySecurityHeaders(response: NextResponse): NextResponse {
   return response
 }
 
+function isRequestSecure(request: NextRequest): boolean {
+  const proto = (request.headers.get('x-forwarded-proto') || request.nextUrl.protocol || '').toLowerCase()
+  return proto.includes('https')
+}
+
+function isLocalHost(hostname: string): boolean {
+  const h = hostname.toLowerCase()
+  return h === 'localhost' || h === '127.0.0.1' || h === '::1'
+}
+
 function extractApiKeyFromRequest(request: NextRequest): string {
   const direct = (request.headers.get('x-api-key') || '').trim()
   if (direct) return direct
@@ -74,6 +84,7 @@ export function proxy(request: NextRequest) {
   // In dev/test: allow all hosts unless overridden.
   const hostName = getRequestHostname(request)
   const allowAnyHost = envFlag('MC_ALLOW_ANY_HOST') || process.env.NODE_ENV !== 'production'
+  const enforceHttps = envFlag('MC_ENFORCE_HTTPS')
   const allowedPatterns = String(process.env.MC_ALLOWED_HOSTS || '')
     .split(',')
     .map((s) => s.trim())
@@ -84,6 +95,15 @@ export function proxy(request: NextRequest) {
 
   if (!isAllowedHost) {
     return new NextResponse('Forbidden', { status: 403 })
+  }
+
+  if (enforceHttps && !isRequestSecure(request) && !isLocalHost(hostName)) {
+    const redirectUrl = request.nextUrl.clone()
+    redirectUrl.protocol = 'https:'
+    if (!redirectUrl.port || redirectUrl.port === '80') {
+      redirectUrl.port = ''
+    }
+    return NextResponse.redirect(redirectUrl, 308)
   }
 
   const { pathname } = request.nextUrl

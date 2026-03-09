@@ -1,0 +1,42 @@
+services:
+  mission-control:
+    image: openalpineai/mission-control:v1.3.1
+    container_name: mission-control
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - PORT=3000
+      - MC_ENFORCE_HTTPS=1
+      - MC_ENABLE_HSTS=1
+    volumes:
+      - mc-data:/app/.data
+      - /home/sarah/.openclaw:/home/sarah/.openclaw
+    restart: unless-stopped
+    networks:
+      - mcnet
+
+  caddy:
+    image: caddy:2
+    container_name: mission-control-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./ops/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - mission-control
+    networks:
+      - mcnet
+
+volumes:
+  mc-data:
+  caddy_data:
+  caddy_config:
+
+networks:
+  mcnet:
+    driver: bridge

@@ -1,0 +1,19 @@
+# Replace mc.your-domain.com with your real domain.
+# Caddy will provision/renew Let's Encrypt certs automatically.
+
+mc.your-domain.com {
+  encode gzip zstd
+
+  reverse_proxy mission-control:3000 {
+    header_up X-Forwarded-Proto https
+    header_up X-Forwarded-For {remote_host}
+    header_up X-Forwarded-Host {host}
+  }
+
+  header {
+    Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+    X-Content-Type-Options "nosniff"
+    X-Frame-Options "DENY"
+    Referrer-Policy "strict-origin-when-cross-origin"
+  }
+}
