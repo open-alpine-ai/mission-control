@@ -2,6 +2,19 @@
 
 All notable changes to Mission Control are documented in this file.
 
+## [1.43.0] - 2026-03-10
+
+### Added
+- New MCP diagnostics API: `GET /api/mcp/events` (recent `mcp_action` + `gateway_diagnostic` events).
+- Live MCP diagnostics stream panel in Gateway Manager UI with auto-refresh.
+
+### Changed
+- Gateway diagnostic events are now persisted to audit log (`action: gateway_diagnostic`) in addition to structured runtime logs.
+- MCP status and diagnostics now refresh continuously in UI for easier operator troubleshooting.
+
+### Fixed
+- Improved visibility for "it still isn't working" cases by surfacing real-time MCP/gateway diagnostic reasons directly in MC web UI.
+
 ## [1.42.0] - 2026-03-10
 
 ### Fixed

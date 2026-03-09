@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
 import { logger } from '@/lib/logger'
+import { logAuditEvent } from '@/lib/db'
 
 type GatewayDiagnosticPayload = {
   event?: string
@@ -45,17 +46,39 @@ export async function POST(request: NextRequest) {
   }
 
   const details = sanitizeDetails(body?.details)
+  const remoteAddr = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'
+  const userAgent = request.headers.get('user-agent') || 'unknown'
+
   logger.info(
     {
       event,
       ts: Number(body?.timestamp || Date.now()),
       details,
-      remoteAddr: request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown',
-      userAgent: request.headers.get('user-agent') || 'unknown',
+      remoteAddr,
+      userAgent,
       source: 'gateway-diagnostics',
     },
     'Gateway connection diagnostic event',
   )
+
+  // Persist a concise diagnostics trail for in-UI live troubleshooting
+  try {
+    logAuditEvent({
+      action: 'gateway_diagnostic',
+      actor: auth.user.username,
+      actor_id: auth.user.id,
+      target_type: 'gateway',
+      detail: {
+        event,
+        details,
+        ts: Number(body?.timestamp || Date.now()),
+      },
+      ip_address: remoteAddr,
+      user_agent: userAgent,
+    })
+  } catch {
+    // best effort
+  }
 
   return NextResponse.json({ ok: true })
 }

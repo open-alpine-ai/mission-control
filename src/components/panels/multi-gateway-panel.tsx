@@ -56,6 +56,14 @@ interface McpStatus {
   latencyMs?: number
 }
 
+interface McpEvent {
+  id: number
+  action: 'mcp_action' | 'gateway_diagnostic' | string
+  actor: string
+  detail?: any
+  created_at: number
+}
+
 export function MultiGatewayPanel() {
   const [gateways, setGateways] = useState<Gateway[]>([])
   const [directConnections, setDirectConnections] = useState<DirectConnection[]>([])
@@ -64,6 +72,7 @@ export function MultiGatewayPanel() {
   const [probing, setProbing] = useState<number | null>(null)
   const [healthByGatewayId, setHealthByGatewayId] = useState<Map<number, GatewayHealthProbe>>(new Map())
   const [mcpStatus, setMcpStatus] = useState<McpStatus | null>(null)
+  const [mcpEvents, setMcpEvents] = useState<McpEvent[]>([])
   const { connection } = useMissionControl()
   const { connect } = useWebSocket()
 
@@ -94,7 +103,25 @@ export function MultiGatewayPanel() {
     }
   }, [])
 
-  useEffect(() => { fetchGateways(); fetchDirectConnections(); fetchMcpStatus() }, [fetchGateways, fetchDirectConnections, fetchMcpStatus])
+  const fetchMcpEvents = useCallback(async () => {
+    try {
+      const res = await fetch('/api/mcp/events?limit=40', { cache: 'no-store' })
+      const data = await res.json().catch(() => ({}))
+      setMcpEvents(Array.isArray(data?.events) ? data.events : [])
+    } catch {
+      setMcpEvents([])
+    }
+  }, [])
+
+  useEffect(() => { fetchGateways(); fetchDirectConnections(); fetchMcpStatus(); fetchMcpEvents() }, [fetchGateways, fetchDirectConnections, fetchMcpStatus, fetchMcpEvents])
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      fetchMcpStatus()
+      fetchMcpEvents()
+    }, 5000)
+    return () => clearInterval(timer)
+  }, [fetchMcpStatus, fetchMcpEvents])
 
   const setPrimary = async (gw: Gateway) => {
     await fetch('/api/gateways', {
@@ -248,7 +275,7 @@ export function MultiGatewayPanel() {
             <p className="text-xs text-muted-foreground mt-0.5">Server-side control channel for gateway actions (no browser pairing required)</p>
           </div>
           <button
-            onClick={fetchMcpStatus}
+            onClick={() => { fetchMcpStatus(); fetchMcpEvents() }}
             className="h-7 px-2.5 rounded-md text-2xs font-medium bg-secondary text-foreground hover:bg-secondary/80 transition-smooth"
           >
             Refresh
@@ -266,6 +293,31 @@ export function MultiGatewayPanel() {
           {!mcpStatus?.connected && (
             <p className="mt-2 text-red-400">Reason: {mcpStatus?.reason || 'No status available'}</p>
           )}
+        </div>
+      </div>
+
+      {/* MCP live diagnostics */}
+      <div className="bg-card border border-border rounded-lg p-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold text-foreground">MCP Live Diagnostics</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">Recent MCP actions and gateway diagnostic events</p>
+          </div>
+        </div>
+        <div className="mt-3 space-y-2 max-h-64 overflow-auto">
+          {mcpEvents.length === 0 ? (
+            <p className="text-xs text-muted-foreground">No diagnostic events yet</p>
+          ) : mcpEvents.map((ev) => (
+            <div key={ev.id} className="rounded border border-border px-2 py-1.5 bg-secondary/20">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-2xs font-medium text-foreground">{ev.action}</span>
+                <span className="text-2xs text-muted-foreground">{new Date(ev.created_at * 1000).toLocaleTimeString()}</span>
+              </div>
+              <div className="text-2xs text-muted-foreground mt-0.5 break-words">
+                {typeof ev.detail === 'object' ? JSON.stringify(ev.detail) : String(ev.detail || '')}
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 
