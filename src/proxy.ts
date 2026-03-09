@@ -99,7 +99,11 @@ export function proxy(request: NextRequest) {
 
   if (enforceHttps && !isRequestSecure(request) && !isLocalHost(hostName)) {
     const redirectUrl = request.nextUrl.clone()
+    const originalHost = (request.headers.get('x-forwarded-host') || request.headers.get('host') || '').split(',')[0]?.trim()
     redirectUrl.protocol = 'https:'
+    if (originalHost) {
+      redirectUrl.host = originalHost
+    }
     if (!redirectUrl.port || redirectUrl.port === '80') {
       redirectUrl.port = ''
     }
