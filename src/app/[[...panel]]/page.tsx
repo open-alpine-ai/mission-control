@@ -88,6 +88,46 @@ export default function Home() {
       })
       .catch(() => {})
 
+    const connectWithFallback = async () => {
+      // Prefer DB-configured primary gateway (can include token configured in MC).
+      try {
+        const gatewaysRes = await fetch('/api/gateways')
+        if (gatewaysRes.ok) {
+          const gatewaysData = await gatewaysRes.json()
+          const gateways = Array.isArray(gatewaysData?.gateways) ? gatewaysData.gateways : []
+          const primary = gateways.find((g: any) => Number(g?.is_primary) === 1) || gateways[0]
+
+          if (primary?.id) {
+            const connectRes = await fetch('/api/gateways/connect', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: primary.id }),
+            })
+            if (connectRes.ok) {
+              const payload = await connectRes.json()
+              if (payload?.ws_url) {
+                connect(String(payload.ws_url), String(payload?.token || ''))
+                return
+              }
+            }
+          }
+        }
+      } catch {
+        // continue to env/default fallback
+      }
+
+      // Fallback to env/default websocket URL token path.
+      const wsToken = process.env.NEXT_PUBLIC_GATEWAY_TOKEN || process.env.NEXT_PUBLIC_WS_TOKEN || ''
+      const explicitWsUrl = process.env.NEXT_PUBLIC_GATEWAY_URL || ''
+      const gatewayPort = process.env.NEXT_PUBLIC_GATEWAY_PORT || '18789'
+      const gatewayHost = process.env.NEXT_PUBLIC_GATEWAY_HOST || window.location.hostname
+      const gatewayProto =
+        process.env.NEXT_PUBLIC_GATEWAY_PROTOCOL ||
+        (window.location.protocol === 'https:' ? 'wss' : 'ws')
+      const wsUrl = explicitWsUrl || `${gatewayProto}://${gatewayHost}:${gatewayPort}`
+      connect(wsUrl, wsToken)
+    }
+
     // Check capabilities, then conditionally connect to gateway
     fetch('/api/status?action=capabilities')
       .then(res => res.ok ? res.json() : null)
@@ -105,28 +145,11 @@ export default function Home() {
           setDashboardMode('full')
           setGatewayAvailable(true)
         }
-        // Connect to gateway WebSocket
-        const wsToken = process.env.NEXT_PUBLIC_GATEWAY_TOKEN || process.env.NEXT_PUBLIC_WS_TOKEN || ''
-        const explicitWsUrl = process.env.NEXT_PUBLIC_GATEWAY_URL || ''
-        const gatewayPort = process.env.NEXT_PUBLIC_GATEWAY_PORT || '18789'
-        const gatewayHost = process.env.NEXT_PUBLIC_GATEWAY_HOST || window.location.hostname
-        const gatewayProto =
-          process.env.NEXT_PUBLIC_GATEWAY_PROTOCOL ||
-          (window.location.protocol === 'https:' ? 'wss' : 'ws')
-        const wsUrl = explicitWsUrl || `${gatewayProto}://${gatewayHost}:${gatewayPort}`
-        connect(wsUrl, wsToken)
+        connectWithFallback()
       })
       .catch(() => {
         // If capabilities check fails, still try to connect
-        const wsToken = process.env.NEXT_PUBLIC_GATEWAY_TOKEN || process.env.NEXT_PUBLIC_WS_TOKEN || ''
-        const explicitWsUrl = process.env.NEXT_PUBLIC_GATEWAY_URL || ''
-        const gatewayPort = process.env.NEXT_PUBLIC_GATEWAY_PORT || '18789'
-        const gatewayHost = process.env.NEXT_PUBLIC_GATEWAY_HOST || window.location.hostname
-        const gatewayProto =
-          process.env.NEXT_PUBLIC_GATEWAY_PROTOCOL ||
-          (window.location.protocol === 'https:' ? 'wss' : 'ws')
-        const wsUrl = explicitWsUrl || `${gatewayProto}://${gatewayHost}:${gatewayPort}`
-        connect(wsUrl, wsToken)
+        connectWithFallback()
       })
   }, [connect, pathname, router, setCurrentUser, setDashboardMode, setGatewayAvailable, setSubscription, setUpdateAvailable])
 
