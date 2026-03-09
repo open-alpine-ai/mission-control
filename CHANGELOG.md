@@ -2,6 +2,16 @@
 
 All notable changes to Mission Control are documented in this file.
 
+## [1.41.0] - 2026-03-10
+
+### Changed
+- Standardized container path mapping to generic/public-safe layout in HTTPS compose docs/config.
+- Removed user-specific host path references from public deployment examples.
+- Updated HTTPS compose to use `OPENCLAW_HOST_DIR` bind mount and `OPENCLAW_HOME=/openclaw-state`.
+
+### Fixed
+- Header version label now derives from app version and displays short format (`1.41` instead of `1.41.0`).
+
 ## [1.40.0] - 2026-03-09
 
 ### Added

@@ -401,7 +401,7 @@ See [`.env.example`](.env.example) for the complete list. Key variables:
 > `OPENCLAW_MEMORY_DIR` to your agents root directory to make the Memory Browser show
 > daily logs, `MEMORY.md`, and other markdown files:
 > ```
-> OPENCLAW_MEMORY_DIR=/home/you/clawd-agents
+> OPENCLAW_MEMORY_DIR=/opt/openclaw/memory
 > ```
 
 ### Workspace Creation Flow

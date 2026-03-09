@@ -1,6 +1,6 @@
 services:
   mission-control:
-    image: openalpineai/mission-control:v1.3.1
+    image: openalpineai/mission-control:v1.41
     container_name: mission-control
     env_file:
       - path: .env
@@ -9,9 +9,10 @@ services:
       - PORT=3000
       - MC_ENFORCE_HTTPS=1
       - MC_ENABLE_HSTS=1
+      - OPENCLAW_HOME=/openclaw-state
     volumes:
       - mc-data:/app/.data
-      - /home/sarah/.openclaw:/home/sarah/.openclaw
+      - ${OPENCLAW_HOST_DIR:-./openclaw-state}:/openclaw-state
     restart: unless-stopped
     networks:
       - mcnet
