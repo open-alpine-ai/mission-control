@@ -10,6 +10,10 @@ services:
       - MC_ENFORCE_HTTPS=1
       - MC_ENABLE_HSTS=1
       - OPENCLAW_HOME=/openclaw-state
+      - MC_MCP_ENDPOINT_URL=http://127.0.0.1:3100/api/mcp/bridge
+      - MC_MCP_API_TOKEN=${MC_MCP_API_TOKEN:-change-me}
+      - MC_MCP_TIMEOUT_MS=10000
+      - MC_MCP_RETRY_COUNT=2
     volumes:
       - mc-data:/app/.data
       - ${OPENCLAW_HOST_DIR:-./openclaw-state}:/openclaw-state

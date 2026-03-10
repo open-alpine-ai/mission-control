@@ -40,11 +40,19 @@ git clone https://github.com/open-alpine-ai/mission-control.git
 cd mission-control
 pnpm install
 cp .env.example .env    # edit with your values
+pnpm setup              # interactive setup (username/password/openclaw host/port)
 pnpm dev                # http://localhost:3000
 ```
 
 Initial login is seeded from `AUTH_USER` / `AUTH_PASS` on first run.
 If `AUTH_PASS` contains `#`, quote it (e.g. `AUTH_PASS="my#password"`) or use `AUTH_PASS_B64`.
+
+`pnpm setup` asks mandatory install questions:
+- Username
+- Password
+- Confirm password
+- OpenClaw server IP/host
+- Mission Control port (blank = 3000)
 
 ## Project Status
 

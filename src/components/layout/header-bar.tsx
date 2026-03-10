@@ -42,7 +42,7 @@ export function HeaderBar() {
     audit: 'Audit Trail',
     webhooks: 'Webhooks',
     alerts: 'Alert Rules',
-    gateways: 'Gateway Manager',
+    gateways: 'OpenClaw Connection',
     users: 'Users',
     workspaces: 'Workspaces',
     'gateway-config': 'Gateway Config',

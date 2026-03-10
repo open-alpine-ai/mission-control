@@ -59,7 +59,7 @@ const navGroups: NavGroup[] = [
       { id: 'users', label: 'Users', icon: <UsersIcon />, priority: false },
       { id: 'audit', label: 'Audit', icon: <AuditIcon />, priority: false },
       { id: 'history', label: 'History', icon: <HistoryIcon />, priority: false },
-      { id: 'gateways', label: 'Gateways', icon: <GatewaysIcon />, priority: false },
+      { id: 'gateways', label: 'OpenClaw Connection', icon: <GatewaysIcon />, priority: false },
       { id: 'gateway-config', label: 'Config', icon: <GatewayConfigIcon />, priority: false, requiresGateway: true },
       { id: 'integrations', label: 'Integrations', icon: <IntegrationsIcon />, priority: false },
       { id: 'workspaces', label: 'Workspaces', icon: <SuperAdminIcon />, priority: false },

@@ -2,6 +2,26 @@
 
 All notable changes to Mission Control are documented in this file.
 
+## [1.45.0] - 2026-03-10
+
+### Added
+- New local MCP bridge endpoint: `POST /api/mcp/bridge` for Mission Control control-plane RPC.
+- OpenClaw Connection UI now includes editable MCP connection fields (endpoint URL, token, timeout, retry) with save action.
+- Interactive installer script `pnpm setup` (`scripts/setup.sh`) with mandatory prompts:
+  - username
+  - password + confirm
+  - OpenClaw server IP/host
+  - Mission Control port (blank defaults to 3000)
+
+### Changed
+- Navigation/panel naming updated from **Gateway Manager** to **OpenClaw Connection**.
+- MCP is treated as mandatory control transport; gateway websocket remains optional.
+- HTTPS compose now includes explicit MCP env wiring for run/yaml parity.
+
+### Fixed
+- Resolved repeated `pairing required` websocket-loop confusion by providing MCP config directly in UI and local bridge transport path.
+- Added in-UI observability so MCP/gateway status and errors are visible without external log hunting.
+
 ## [1.43.0] - 2026-03-10
 
 ### Added

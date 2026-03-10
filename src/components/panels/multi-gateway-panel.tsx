@@ -64,6 +64,13 @@ interface McpEvent {
   created_at: number
 }
 
+interface McpConfigForm {
+  endpointUrl: string
+  apiToken: string
+  timeoutMs: string
+  retryCount: string
+}
+
 export function MultiGatewayPanel() {
   const [gateways, setGateways] = useState<Gateway[]>([])
   const [directConnections, setDirectConnections] = useState<DirectConnection[]>([])
@@ -73,6 +80,9 @@ export function MultiGatewayPanel() {
   const [healthByGatewayId, setHealthByGatewayId] = useState<Map<number, GatewayHealthProbe>>(new Map())
   const [mcpStatus, setMcpStatus] = useState<McpStatus | null>(null)
   const [mcpEvents, setMcpEvents] = useState<McpEvent[]>([])
+  const [mcpConfig, setMcpConfig] = useState<McpConfigForm>({ endpointUrl: '', apiToken: '', timeoutMs: '10000', retryCount: '2' })
+  const [savingMcp, setSavingMcp] = useState(false)
+  const [mcpSaveMessage, setMcpSaveMessage] = useState('')
   const { connection } = useMissionControl()
   const { connect } = useWebSocket()
 
@@ -113,7 +123,56 @@ export function MultiGatewayPanel() {
     }
   }, [])
 
-  useEffect(() => { fetchGateways(); fetchDirectConnections(); fetchMcpStatus(); fetchMcpEvents() }, [fetchGateways, fetchDirectConnections, fetchMcpStatus, fetchMcpEvents])
+  const fetchMcpConfig = useCallback(async () => {
+    try {
+      const res = await fetch('/api/settings', { cache: 'no-store' })
+      if (!res.ok) return
+      const data = await res.json().catch(() => ({}))
+      const settings = Array.isArray(data?.settings) ? data.settings : []
+      const lookup = new Map<string, string>(settings.map((s: any) => [String(s.key), String(s.value ?? '')]))
+      setMcpConfig({
+        endpointUrl: lookup.get('gateway.mcp_endpoint_url') || '',
+        apiToken: lookup.get('gateway.mcp_api_token') || '',
+        timeoutMs: lookup.get('gateway.mcp_timeout_ms') || '10000',
+        retryCount: lookup.get('gateway.mcp_retry_count') || '2',
+      })
+    } catch {
+      // ignore
+    }
+  }, [])
+
+  const saveMcpConfig = useCallback(async () => {
+    setSavingMcp(true)
+    setMcpSaveMessage('')
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          settings: {
+            'gateway.mcp_endpoint_url': mcpConfig.endpointUrl.trim(),
+            'gateway.mcp_api_token': mcpConfig.apiToken.trim(),
+            'gateway.mcp_timeout_ms': mcpConfig.timeoutMs.trim() || '10000',
+            'gateway.mcp_retry_count': mcpConfig.retryCount.trim() || '2',
+          }
+        })
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        setMcpSaveMessage(`Save failed: ${err?.error || 'unknown error'}`)
+        return
+      }
+      setMcpSaveMessage('MCP settings saved.')
+      await fetchMcpStatus()
+      await fetchMcpEvents()
+    } catch {
+      setMcpSaveMessage('Save failed: network error')
+    } finally {
+      setSavingMcp(false)
+    }
+  }, [fetchMcpEvents, fetchMcpStatus, mcpConfig])
+
+  useEffect(() => { fetchGateways(); fetchDirectConnections(); fetchMcpStatus(); fetchMcpEvents(); fetchMcpConfig() }, [fetchGateways, fetchDirectConnections, fetchMcpStatus, fetchMcpEvents, fetchMcpConfig])
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -199,9 +258,9 @@ export function MultiGatewayPanel() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-foreground">Gateway Manager</h2>
+          <h2 className="text-lg font-semibold text-foreground">OpenClaw Connection</h2>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Manage multiple OpenClaw gateway connections
+            Configure MCP (mandatory) and optional gateway websocket connections
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -267,20 +326,73 @@ export function MultiGatewayPanel() {
         </div>
       )}
 
-      {/* MCP control transport status */}
+      {/* MCP control transport status + configuration (mandatory) */}
       <div className="bg-card border border-border rounded-lg p-4">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h3 className="text-sm font-semibold text-foreground">MCP Control Transport</h3>
-            <p className="text-xs text-muted-foreground mt-0.5">Server-side control channel for gateway actions (no browser pairing required)</p>
+            <h3 className="text-sm font-semibold text-foreground">MCP Control Transport (Mandatory)</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">Configure OpenClaw MCP endpoint + token here. Gateway websocket connection is optional.</p>
           </div>
           <button
-            onClick={() => { fetchMcpStatus(); fetchMcpEvents() }}
+            onClick={() => { fetchMcpStatus(); fetchMcpEvents(); fetchMcpConfig() }}
             className="h-7 px-2.5 rounded-md text-2xs font-medium bg-secondary text-foreground hover:bg-secondary/80 transition-smooth"
           >
             Refresh
           </button>
         </div>
+
+        <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-2xs text-muted-foreground mb-1">MCP Endpoint URL</label>
+            <input
+              type="text"
+              value={mcpConfig.endpointUrl}
+              onChange={(e) => setMcpConfig((s) => ({ ...s, endpointUrl: e.target.value }))}
+              placeholder="https://your-mcp-host/rpc"
+              className="w-full h-8 px-2.5 rounded-md bg-secondary border border-border text-xs text-foreground"
+            />
+          </div>
+          <div>
+            <label className="block text-2xs text-muted-foreground mb-1">MCP API Token</label>
+            <input
+              type="password"
+              value={mcpConfig.apiToken}
+              onChange={(e) => setMcpConfig((s) => ({ ...s, apiToken: e.target.value }))}
+              placeholder="Bearer token"
+              className="w-full h-8 px-2.5 rounded-md bg-secondary border border-border text-xs text-foreground"
+            />
+          </div>
+          <div>
+            <label className="block text-2xs text-muted-foreground mb-1">Timeout (ms)</label>
+            <input
+              type="number"
+              value={mcpConfig.timeoutMs}
+              onChange={(e) => setMcpConfig((s) => ({ ...s, timeoutMs: e.target.value }))}
+              className="w-full h-8 px-2.5 rounded-md bg-secondary border border-border text-xs text-foreground"
+            />
+          </div>
+          <div>
+            <label className="block text-2xs text-muted-foreground mb-1">Retry Count</label>
+            <input
+              type="number"
+              value={mcpConfig.retryCount}
+              onChange={(e) => setMcpConfig((s) => ({ ...s, retryCount: e.target.value }))}
+              className="w-full h-8 px-2.5 rounded-md bg-secondary border border-border text-xs text-foreground"
+            />
+          </div>
+        </div>
+
+        <div className="mt-3 flex items-center gap-2">
+          <button
+            onClick={saveMcpConfig}
+            disabled={savingMcp}
+            className="h-8 px-3 rounded-md text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+          >
+            {savingMcp ? 'Saving...' : 'Save MCP Settings'}
+          </button>
+          {mcpSaveMessage && <span className="text-xs text-muted-foreground">{mcpSaveMessage}</span>}
+        </div>
+
         <div className="mt-3 text-xs">
           <div className="flex items-center gap-2">
             <span className={`w-2 h-2 rounded-full ${mcpStatus?.connected ? 'bg-green-500' : 'bg-red-500'}`} />
